@@ -267,9 +267,17 @@ To access the Kiali dashboard, you will get the URL below.
 $ kubectl get route -n istio-system -l app.kubernetes.io/name=kiali -o jsonpath='https://{..spec.host}/'
 ```
 
+![kiali-dashboard](images/kiali-dashboard.png "Kiali Dashboard")
+
 Send some traffic to the Bookinfo application and open the Kiali dashboard page. Click on the Traffic Graph and select `bookinfo` from the `Select Namespaces` drop-down. You should see the Bookinfo application traffic flow in the graph.
 
+![kiali-traffic-map](images/kiali-traffic-map.png "Kiali Traffic Map")
+
 Next, click and select `Show Badges`, `Security` from the `Display` drop-down. You should see each Bookinfo application traffic edge with a lock icon. By default, the traffic between services is mTLS encrypted in Istio ambient mode.
+
+![kiali-security](images/kiali-security.png "Kiali Security")
+
+In the [Kiali documentation](https://kiali.io/docs/features/ambient/) there is a list of all the Ambient features. 
 
 ### Troubleshoot issues
 
