@@ -3165,6 +3165,7 @@ _Appears in:_
 - [IstioRevisionStatus](#istiorevisionstatus)
 - [IstioRevisionTagStatus](#istiorevisiontagstatus)
 - [IstioStatus](#istiostatus)
+- [MetricsIntegrationStatus](#metricsintegrationstatus)
 - [ZTunnelStatus](#ztunnelstatus)
 - [ZTunnelStatus](#ztunnelstatus)
 
@@ -3894,8 +3895,236 @@ _Appears in:_
 Package v1alpha1 contains API Schema definitions for the sailoperator.io v1alpha1 API group
 
 ### Resource Types
+- [MetricsIntegration](#metricsintegration-v1alpha1)
+- [MetricsIntegrationList](#metricsintegrationlist-v1alpha1)
 - [ZTunnel](#ztunnel-v1alpha1)
 - [ZTunnelList](#ztunnellist-v1alpha1)
+
+
+
+#### ClusterObservabilityOperatorConfig
+
+
+
+ClusterObservabilityOperatorConfig configures the Cluster Observability Operator integration.
+
+
+
+_Appears in:_
+- [MetricsConfig](#metricsconfig)
+- [MetricsIntegrationSpec](#metricsintegrationspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `monitoringStackRef` _[NamespacedReference](#namespacedreference)_ | MonitoringStackRef is a reference to a MonitoringStack resource that defines the Prometheus stack used for scraping Istio metrics. |  |  |
+
+
+#### IstioPersesDashboard
+
+_Underlying type:_ _string_
+
+IstioPersesDashboard identifies a productized Istio Perses dashboard.
+
+_Validation:_
+- Enum: [ControlPlane Mesh Performance Service Workload Ztunnel]
+
+_Appears in:_
+- [PersesProvisioningConfig](#persesprovisioningconfig)
+
+| Field | Description |
+| --- | --- |
+| `ControlPlane` |  |
+| `Mesh` |  |
+| `Performance` |  |
+| `Service` |  |
+| `Workload` |  |
+| `Ztunnel` |  |
+
+
+#### MetricsConfig
+
+
+
+MetricsConfig configures a metrics backend.
+
+
+
+_Appears in:_
+- [MetricsIntegrationSpec](#metricsintegrationspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `type` _[MetricsType](#metricstype)_ | Type specifies the metrics integration type. |  | Enum: [UserWorkloadMonitoring ClusterObservabilityOperator]   |
+| `userWorkloadMonitoring` _[UserWorkloadMonitoringConfig](#userworkloadmonitoringconfig)_ | UserWorkloadMonitoring configures integration with OpenShift User Workload Monitoring. |  |  |
+| `clusterObservabilityOperator` _[ClusterObservabilityOperatorConfig](#clusterobservabilityoperatorconfig)_ | ClusterObservabilityOperator configures integration with the Cluster Observability Operator's MonitoringStack resource for metrics collection. |  |  |
+
+
+#### MetricsIntegration (v1alpha1)
+
+
+
+MetricsIntegration configures metrics observability integrations for Istio.
+
+
+
+_Appears in:_
+- [MetricsIntegrationList](#metricsintegrationlist)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `sailoperator.io/v1alpha1` | | |
+| `kind` _string_ | `MetricsIntegration` | | |
+| `kind` _string_ | Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds |  |  |
+| `apiVersion` _string_ | APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources |  |  |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.25/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[MetricsIntegrationSpec](#metricsintegrationspec)_ |  |  |  |
+| `status` _[MetricsIntegrationStatus](#metricsintegrationstatus)_ |  |  |  |
+
+
+
+
+
+
+#### MetricsIntegrationList (v1alpha1)
+
+
+
+MetricsIntegrationList contains a list of MetricsIntegration.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `sailoperator.io/v1alpha1` | | |
+| `kind` _string_ | `MetricsIntegrationList` | | |
+| `kind` _string_ | Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds |  |  |
+| `apiVersion` _string_ | APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources |  |  |
+| `metadata` _[ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.25/#listmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `items` _[MetricsIntegration](#metricsintegration) array_ |  |  |  |
+
+
+#### MetricsIntegrationSpec
+
+
+
+MetricsIntegrationSpec defines the desired state of MetricsIntegration.
+
+
+
+_Appears in:_
+- [MetricsIntegration](#metricsintegration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `targetRefs` _[TargetReference](#targetreference) array_ | TargetRefs specifies the resources that this integration configures. |  | MinItems: 1   |
+| `perses` _[PersesProvisioningConfig](#persesprovisioningconfig)_ | Perses customizes datasource and dashboard provisioning when targetRefs includes kind Perses. Ignored when no Perses targetRef is present. |  |  |
+| `type` _[MetricsType](#metricstype)_ | Type specifies the metrics integration type. |  | Enum: [UserWorkloadMonitoring ClusterObservabilityOperator]   |
+| `userWorkloadMonitoring` _[UserWorkloadMonitoringConfig](#userworkloadmonitoringconfig)_ | UserWorkloadMonitoring configures integration with OpenShift User Workload Monitoring. |  |  |
+| `clusterObservabilityOperator` _[ClusterObservabilityOperatorConfig](#clusterobservabilityoperatorconfig)_ | ClusterObservabilityOperator configures integration with the Cluster Observability Operator's MonitoringStack resource for metrics collection. |  |  |
+
+
+#### MetricsIntegrationStatus
+
+
+
+MetricsIntegrationStatus defines the observed state of MetricsIntegration.
+
+
+
+_Appears in:_
+- [MetricsIntegration](#metricsintegration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `observedGeneration` _integer_ |  |  |  |
+| `conditions` _[StatusCondition](#statuscondition) array_ |  |  |  |
+
+
+#### MetricsType
+
+_Underlying type:_ _string_
+
+MetricsType identifies the type of metrics integration.
+
+_Validation:_
+- Enum: [UserWorkloadMonitoring ClusterObservabilityOperator]
+
+_Appears in:_
+- [MetricsConfig](#metricsconfig)
+- [MetricsIntegrationSpec](#metricsintegrationspec)
+
+| Field | Description |
+| --- | --- |
+| `UserWorkloadMonitoring` |  |
+| `ClusterObservabilityOperator` |  |
+
+
+#### NamespacedReference
+
+
+
+NamespacedReference is a reference to a namespaced resource.
+
+
+
+_Appears in:_
+- [ClusterObservabilityOperatorConfig](#clusterobservabilityoperatorconfig)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ |  |  |  |
+| `namespace` _string_ |  |  |  |
+
+
+#### PersesProvisioningConfig
+
+
+
+PersesProvisioningConfig controls Perses CRs created by the Integrations controller.
+
+
+
+_Appears in:_
+- [MetricsIntegrationSpec](#metricsintegrationspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `datasourceName` _string_ | DatasourceName is the metadata.name of the PersesDatasource the controller creates. Defaults to "prometheus-datasource". | prometheus-datasource |  |
+| `dashboards` _[IstioPersesDashboard](#istiopersesdashboard) array_ | Dashboards selects productized Istio Perses dashboards to install. Omit to install all six dashboards. |  | Enum: [ControlPlane Mesh Performance Service Workload Ztunnel]   |
+
+
+#### TargetReference
+
+
+
+TargetReference identifies a resource that an Integration configures or a Perses
+project namespace where the controller provisions PersesDatasource and PersesDashboard resources.
+
+
+
+_Appears in:_
+- [MetricsIntegrationSpec](#metricsintegrationspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `kind` _string_ | Kind specifies the target kind: "Istio", "Kiali", or "Perses". |  | Enum: [Istio Kiali Perses]   |
+| `name` _string_ | Name is the name of the target resource. |  |  |
+| `namespace` _string_ | Namespace is the namespace of the target resource. Required for namespace-scoped resources like Kiali and for Perses (project namespace). |  |  |
+
+
+#### UserWorkloadMonitoringConfig
+
+
+
+UserWorkloadMonitoringConfig configures the User Workload Monitoring integration.
+
+
+
+_Appears in:_
+- [MetricsConfig](#metricsconfig)
+- [MetricsIntegrationSpec](#metricsintegrationspec)
 
 
 

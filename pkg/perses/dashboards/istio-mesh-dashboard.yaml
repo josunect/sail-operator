@@ -1,0 +1,14 @@
+# Placeholder until community-mixins YAML is vendored (OSSM-15318).
+# Replace with the full PersesDashboard manifest from:
+# https://github.com/perses/community-mixins/tree/main/examples/dashboards/operator/istio
+apiVersion: perses.dev/v1alpha2
+kind: PersesDashboard
+metadata:
+  name: istio-mesh-dashboard
+spec:
+  display:
+    name: Istio Mesh Dashboard
+  datasources:
+    prometheus-datasource:
+      kind: PrometheusDatasource
+  panels: {}

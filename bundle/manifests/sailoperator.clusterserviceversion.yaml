@@ -148,6 +148,9 @@ spec:
       - kind: WorkloadGroup
         name: workloadgroups.networking.istio.io
         version: v1beta1
+      - kind: MetricsIntegration
+        name: metricsintegrations.sailoperator.io
+        version: v1alpha1
       - kind: ZTunnel
         name: ztunnels.sailoperator.io
         version: v1alpha1
