@@ -22,11 +22,11 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/istio-ecosystem/sail-operator/controllers/metricsintegration"
 	"github.com/istio-ecosystem/sail-operator/controllers/istio"
 	"github.com/istio-ecosystem/sail-operator/controllers/istiocni"
 	"github.com/istio-ecosystem/sail-operator/controllers/istiorevision"
 	"github.com/istio-ecosystem/sail-operator/controllers/istiorevisiontag"
+	"github.com/istio-ecosystem/sail-operator/controllers/metricsintegration"
 	"github.com/istio-ecosystem/sail-operator/controllers/webhook"
 	"github.com/istio-ecosystem/sail-operator/controllers/ztunnel"
 	"github.com/istio-ecosystem/sail-operator/pkg/config"
