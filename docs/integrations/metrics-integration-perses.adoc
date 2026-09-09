@@ -1,0 +1,197 @@
+= MetricsIntegration Perses provisioning
+:toc:
+:toclevels: 2
+
+This document describes the Perses slice of `MetricsIntegration` and how to test it locally on KinD.
+
+== Scope
+
+The current implementation provisions `PersesDatasource` and `PersesDashboard` resources when `spec.targetRefs` includes a `Perses` target. It does not yet configure Istio, Kiali, User Workload Monitoring, or Cluster Observability Operator resources.
+
+A `MetricsIntegration` without a `Perses` `targetRef` is rejected with `Reconciled=False` and reason `NoPersesTarget`.
+
+== Prerequisites
+
+* KinD cluster created with the Sail Operator development workflow
+* Helm 3
+* Docker
+
+== End-to-end test on KinD
+
+=== 1. Create the KinD cluster and deploy Sail Operator
+
+[source,bash]
+----
+make cluster
+kind export kubeconfig --name operator-integration-tests
+kubectl config use-context kind-operator-integration-tests
+
+make install
+export HUB=localhost:5000
+HELM_TEMPL_DEF_FLAGS="--values chart/values.yaml" make deploy
+kubectl rollout status deployment/sail-operator -n sail-operator
+----
+
+Deploy without bundled Istio CRDs when another Istio installation already manages them:
+
+[source,bash]
+----
+HELM_TEMPL_DEF_FLAGS="--values chart/values.yaml" make deploy
+----
+
+=== 2. Install Perses Operator
+
+[source,bash]
+----
+helm repo add perses https://perses.github.io/helm-charts
+helm repo update
+
+helm install perses-operator perses/perses-operator \
+  --namespace perses --create-namespace \
+  --set certManager.enable=false
+
+kubectl wait --for=condition=Available deployment -l app.kubernetes.io/name=perses-operator -n perses --timeout=120s
+kubectl get crd | grep perses
+----
+
+=== 3. Create the Perses server
+
+Create the Perses project namespace and server before creating `MetricsIntegration`.
+
+[source,bash]
+----
+kubectl create namespace monitoring
+
+kubectl apply -f - <<EOF
+apiVersion: perses.dev/v1alpha2
+kind: Perses
+metadata:
+  name: perses
+  namespace: monitoring
+spec:
+  image: docker.io/persesdev/perses:v0.53.1
+  containerPort: 8080
+  config:
+    database:
+      file:
+        folder: "/perses"
+        extension: "yaml"
+    ephemeral_dashboard:
+      enable: false
+      cleanup_interval: "1s"
+EOF
+
+kubectl wait --for=condition=Available deployment -l app.kubernetes.io/name=perses -n monitoring --timeout=300s
+----
+
+=== 4. Create MetricsIntegration
+
+[source,bash]
+----
+kubectl apply -f chart/samples/metricsintegration-perses-sample.yaml
+----
+
+Or apply a minimal resource:
+
+[source,bash]
+----
+kubectl apply -f - <<EOF
+apiVersion: sailoperator.io/v1alpha1
+kind: MetricsIntegration
+metadata:
+  name: test-perses
+spec:
+  type: UserWorkloadMonitoring
+  userWorkloadMonitoring: {}
+  targetRefs:
+    - kind: Perses
+      name: perses
+      namespace: monitoring
+EOF
+----
+
+=== 5. Verify provisioning
+
+[source,bash]
+----
+kubectl get metricsintegration test-perses
+kubectl describe metricsintegration test-perses
+
+kubectl get persesdatasources,persesdashboards -n monitoring
+kubectl logs -n sail-operator deploy/sail-operator --tail=30
+----
+
+Expected result:
+
+* `Reconciled=True`
+* `PersesAvailable=True`
+* One `PersesDatasource` named `prometheus-datasource`
+* Six `PersesDashboard` resources when `spec.perses.dashboards` is omitted
+
+=== 6. Optional: open the Perses UI
+
+[source,bash]
+----
+kubectl port-forward -n monitoring svc/perses 8080:8080
+----
+
+Open `http://localhost:8080` and select the `monitoring` project.
+
+Dashboards are provisioned, but queries do not return data on KinD because the datasource URL targets OpenShift User Workload Monitoring.
+
+== OpenShift and Cluster Observability Operator
+
+When Perses is managed by the Cluster Observability Operator (COO), install the UI plugin with `perses.enabled: true` and create the `MetricsIntegration` in the namespace that should appear as a Perses project (for example `monitoring`).
+
+The controller provisions a `PersesDatasource` configured for OpenShift monitoring:
+
+* Thanos querier URL: `https://thanos-querier.openshift-monitoring.svc.cluster.local:9091`
+* TLS client config using the service CA mounted at `/ca/service-ca.crt` in the Perses pod
+* HTTP proxy secret named `<datasource-name>-secret` (default: `prometheus-datasource-secret`), which the perses-operator creates automatically
+
+Grant the Perses service account permission to read monitoring data:
+
+[source,yaml]
+----
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: perses-cluster-monitoring-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-monitoring-view
+subjects:
+- kind: ServiceAccount
+  name: perses-sa
+  namespace: openshift-cluster-observability-operator
+----
+
+After TLS and RBAC are in place, dashboard panels may still show `No data` until Istio metrics are scraped into User Workload Monitoring. That requires a separate Istio/UWM integration (see link:../addons/observability.adoc#scraping-metrics-using-the-openshift-monitoring-stack[Scraping metrics using the OpenShift monitoring stack]).
+
+== Status conditions
+
+[cols="1,2,2", options="header"]
+|===
+| Condition | Reason | Meaning
+
+| `Reconciled=False`
+| `NoPersesTarget`
+| `spec.targetRefs` does not include a `Perses` target
+
+| `Reconciled=False`
+| `MissingCRDs`
+| `perses.dev` CRDs are not installed yet
+
+| `Reconciled=False`
+| `NamespaceNotFound`
+| The Perses project namespace from `targetRefs` does not exist yet
+
+| `Reconciled=True`
+| `Healthy`
+| Perses datasource and dashboards were provisioned successfully
+|===
+
+== Sample manifest
+
+See `chart/samples/metricsintegration-perses-sample.yaml`.

@@ -29,6 +29,13 @@ const (
 
 	// UWMPrometheusURL is the OpenShift User Workload Monitoring Thanos querier endpoint.
 	UWMPrometheusURL = "https://thanos-querier.openshift-monitoring.svc.cluster.local:9091"
+
+	// OpenShiftServiceCAPath is mounted by the COO/Perses operand for in-cluster TLS.
+	OpenShiftServiceCAPath = "/ca/service-ca.crt"
+
+	// DatasourceSecretSuffix is appended to the PersesDatasource name for HTTPProxy auth.
+	// The perses-operator provisions the corresponding Perses secret automatically.
+	DatasourceSecretSuffix = "-secret"
 )
 
 // DashboardDefinition maps a product dashboard name to its PersesDashboard CR metadata.name.

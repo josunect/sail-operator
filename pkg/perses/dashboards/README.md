@@ -2,7 +2,7 @@
 
 Vendored `PersesDashboard` manifests from [perses/community-mixins](https://github.com/perses/community-mixins/tree/main/examples/dashboards/operator/istio).
 
-Copy the operator-format YAML files here before enabling dashboard reconciliation in CI/e2e:
+Bundled files:
 
 - `istio-control-plane.yaml`
 - `istio-mesh-dashboard.yaml`
@@ -12,3 +12,7 @@ Copy the operator-format YAML files here before enabling dashboard reconciliatio
 - `istio-ztunnel-dashboard.yaml`
 
 The Integrations controller embeds `pkg/perses/dashboards/*.yaml` at build time.
+
+Each manifest must define `spec.config`. `TestBundledDashboardsHaveSpecConfig` enforces this in unit tests.
+
+For local end-to-end testing on KinD, see `docs/integrations/metrics-integration-perses.adoc`.

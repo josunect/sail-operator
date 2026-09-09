@@ -19,6 +19,8 @@ import (
 	"fmt"
 
 	"github.com/istio-ecosystem/sail-operator/api/v1alpha1"
+	"github.com/istio-ecosystem/sail-operator/pkg/reconciler"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -61,6 +63,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, in ReconcileInput) (Reconcil
 	result.CRDsAvailable = available
 	if !available {
 		return result, nil
+	}
+
+	if err := ensureNamespace(ctx, r.Client, in.Namespace); err != nil {
+		return result, err
 	}
 
 	mi := in.Integration
@@ -190,6 +196,17 @@ func (r *Reconciler) Finalize(ctx context.Context, mi *v1alpha1.MetricsIntegrati
 				}
 			}
 		}
+	}
+	return nil
+}
+
+func ensureNamespace(ctx context.Context, cl client.Client, name string) error {
+	ns := &corev1.Namespace{}
+	if err := cl.Get(ctx, client.ObjectKey{Name: name}, ns); err != nil {
+		if apierrors.IsNotFound(err) {
+			return reconciler.NewTransientError(fmt.Sprintf("Perses project namespace \"%s\" does not exist", name))
+		}
+		return err
 	}
 	return nil
 }

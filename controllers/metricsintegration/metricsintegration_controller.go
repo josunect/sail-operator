@@ -17,6 +17,7 @@ package metricsintegration
 import (
 	"context"
 	"errors"
+	"strings"
 
 	v1 "github.com/istio-ecosystem/sail-operator/api/v1"
 	"github.com/istio-ecosystem/sail-operator/api/v1alpha1"
@@ -65,7 +66,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, mi *v1alpha1.MetricsIntegrat
 func (r *Reconciler) doReconcile(ctx context.Context, mi *v1alpha1.MetricsIntegration) error {
 	ref, ok := mi.Spec.PersesTarget()
 	if !ok {
-		return nil
+		return reconciler.NewValidationError(
+			"spec.targetRefs must include a Perses target to provision datasources and dashboards",
+		)
 	}
 
 	namespace, err := perses.PersesProjectNamespace(ref)
@@ -81,7 +84,7 @@ func (r *Reconciler) doReconcile(ctx context.Context, mi *v1alpha1.MetricsIntegr
 		return err
 	}
 	if !result.CRDsAvailable {
-		return nil
+		return reconciler.NewTransientError("perses.dev CRDs are not installed")
 	}
 	return nil
 }
@@ -118,9 +121,27 @@ func (r *Reconciler) reconciledCondition(reconcileErr error) v1.StatusCondition 
 		return c
 	}
 	c.Status = metav1.ConditionFalse
-	c.Reason = v1alpha1.MetricsIntegrationReasonReconcileError
+	c.Reason = r.reconciliationReason(reconcileErr)
 	c.Message = reconcileErr.Error()
 	return c
+}
+
+func (r *Reconciler) reconciliationReason(reconcileErr error) v1alpha1.MetricsIntegrationConditionReason {
+	if reconciler.IsValidationError(reconcileErr) {
+		if strings.Contains(reconcileErr.Error(), "Perses target") {
+			return v1alpha1.MetricsIntegrationReasonNoPersesTarget
+		}
+	}
+	if reconciler.IsTransientError(reconcileErr) {
+		msg := reconcileErr.Error()
+		if strings.Contains(msg, "CRDs") {
+			return v1alpha1.MetricsIntegrationReasonMissingCRDs
+		}
+		if strings.Contains(msg, "namespace") {
+			return v1alpha1.MetricsIntegrationReasonNamespaceNotFound
+		}
+	}
+	return v1alpha1.MetricsIntegrationReasonReconcileError
 }
 
 func (r *Reconciler) persesAvailableCondition(ctx context.Context, ref v1alpha1.TargetReference, reconcileErr error) v1.StatusCondition {
@@ -140,7 +161,7 @@ func (r *Reconciler) persesAvailableCondition(ctx context.Context, ref v1alpha1.
 	}
 	if reconcileErr != nil {
 		c.Status = metav1.ConditionFalse
-		c.Reason = v1alpha1.MetricsIntegrationReasonReconcileError
+		c.Reason = r.reconciliationReason(reconcileErr)
 		c.Message = reconcileErr.Error()
 		return c
 	}

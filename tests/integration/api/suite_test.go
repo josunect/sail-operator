@@ -26,6 +26,7 @@ import (
 	"github.com/istio-ecosystem/sail-operator/controllers/istiocni"
 	"github.com/istio-ecosystem/sail-operator/controllers/istiorevision"
 	"github.com/istio-ecosystem/sail-operator/controllers/istiorevisiontag"
+	"github.com/istio-ecosystem/sail-operator/controllers/metricsintegration"
 	"github.com/istio-ecosystem/sail-operator/controllers/ztunnel"
 	"github.com/istio-ecosystem/sail-operator/pkg/config"
 	"github.com/istio-ecosystem/sail-operator/pkg/helm"
@@ -57,7 +58,8 @@ var (
 	istioRevisionReconciler    *istiorevision.Reconciler
 	istioRevisionTagReconciler *istiorevisiontag.Reconciler
 	istioCNIReconciler         *istiocni.Reconciler
-	zTunnelReconciler          *ztunnel.Reconciler
+	zTunnelReconciler              *ztunnel.Reconciler
+	metricsIntegrationReconciler   *metricsintegration.Reconciler
 )
 
 const operatorNamespace = "sail-operator"
@@ -101,11 +103,13 @@ var _ = BeforeSuite(func() {
 	istioRevisionTagReconciler = istiorevisiontag.NewReconciler(cfg, cl, scheme, chartManager)
 	istioCNIReconciler = istiocni.NewReconciler(cfg, cl, scheme, chartManager)
 	zTunnelReconciler = ztunnel.NewReconciler(cfg, cl, scheme, chartManager)
+	metricsIntegrationReconciler = metricsintegration.NewReconciler(cfg, cl, scheme)
 	Expect(istioReconciler.SetupWithManager(mgr)).To(Succeed())
 	Expect(istioRevisionReconciler.SetupWithManager(mgr)).To(Succeed())
 	Expect(istioRevisionTagReconciler.SetupWithManager(mgr)).To(Succeed())
 	Expect(istioCNIReconciler.SetupWithManager(mgr)).To(Succeed())
 	Expect(zTunnelReconciler.SetupWithManager(mgr)).To(Succeed())
+	Expect(metricsIntegrationReconciler.SetupWithManager(mgr)).To(Succeed())
 
 	// create new cancellable context
 	var ctx context.Context

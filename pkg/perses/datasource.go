@@ -57,7 +57,8 @@ func NewDatasource(mi *v1alpha1.MetricsIntegration, namespace, name string) (*un
 				"proxy": map[string]interface{}{
 					"kind": "HTTPProxy",
 					"spec": map[string]interface{}{
-						"url": url,
+						"url":    url,
+						"secret": datasourceSecretName(name),
 					},
 				},
 			},
@@ -65,7 +66,35 @@ func NewDatasource(mi *v1alpha1.MetricsIntegration, namespace, name string) (*un
 	}, "spec", "config"); err != nil {
 		return nil, fmt.Errorf("set datasource spec: %w", err)
 	}
+
+	if client := openShiftDatasourceClient(mi.Spec.Type); client != nil {
+		if err := unstructured.SetNestedMap(obj.Object, client, "spec", "client"); err != nil {
+			return nil, fmt.Errorf("set datasource client: %w", err)
+		}
+	}
+
 	return obj, nil
+}
+
+func datasourceSecretName(name string) string {
+	return name + DatasourceSecretSuffix
+}
+
+func openShiftDatasourceClient(metricsType v1alpha1.MetricsType) map[string]interface{} {
+	switch metricsType {
+	case v1alpha1.MetricsTypeUserWorkloadMonitoring:
+		return map[string]interface{}{
+			"tls": map[string]interface{}{
+				"enable": true,
+				"caCert": map[string]interface{}{
+					"type":     "file",
+					"certPath": OpenShiftServiceCAPath,
+				},
+			},
+		}
+	default:
+		return nil
+	}
 }
 
 func prometheusURL(mi *v1alpha1.MetricsIntegration) (string, error) {

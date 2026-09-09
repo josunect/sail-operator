@@ -1,0 +1,22 @@
+apiVersion: sailoperator.io/v1alpha1
+kind: MetricsIntegration
+metadata:
+  name: perses-integration
+spec:
+  type: UserWorkloadMonitoring
+  userWorkloadMonitoring: {}
+  targetRefs:
+    - kind: Perses
+      name: perses
+      namespace: monitoring
+  perses:
+    # Optional: defaults to prometheus-datasource
+    # datasourceName: prometheus-datasource
+    # Optional: omit to install all six Istio dashboards
+    dashboards:
+      - ControlPlane
+      - Mesh
+      - Performance
+      - Service
+      - Workload
+      - Ztunnel

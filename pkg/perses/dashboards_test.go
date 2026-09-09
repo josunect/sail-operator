@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/istio-ecosystem/sail-operator/api/v1alpha1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 func TestResolveDashboards(t *testing.T) {
@@ -31,6 +32,26 @@ func TestResolveDashboards(t *testing.T) {
 	}
 	if got[0].Name != "istio-mesh-dashboard" || got[1].Name != "istio-service-dashboard" {
 		t.Fatalf("unexpected dashboard names: %+v", got)
+	}
+}
+
+func TestBundledDashboardsHaveSpecConfig(t *testing.T) {
+	for _, def := range ProductDashboards {
+		raw, err := LoadDashboardYAML(def)
+		if err != nil {
+			t.Fatalf("LoadDashboardYAML(%s): %v", def.Filename, err)
+		}
+		obj, err := ParseDashboard(raw)
+		if err != nil {
+			t.Fatalf("ParseDashboard(%s): %v", def.Filename, err)
+		}
+		config, found, err := unstructured.NestedMap(obj.Object, "spec", "config")
+		if err != nil {
+			t.Fatalf("NestedMap(%s): %v", def.Filename, err)
+		}
+		if !found || len(config) == 0 {
+			t.Fatalf("dashboard %s must define spec.config", def.Filename)
+		}
 	}
 }
 

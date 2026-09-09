@@ -123,9 +123,11 @@ const (
 	MetricsIntegrationConditionReconciled      MetricsIntegrationConditionType = "Reconciled"
 	MetricsIntegrationConditionPersesAvailable MetricsIntegrationConditionType = "PersesAvailable"
 
-	MetricsIntegrationReasonReconcileError MetricsIntegrationConditionReason = "ReconcileError"
-	MetricsIntegrationReasonMissingCRDs    MetricsIntegrationConditionReason = "MissingCRDs"
-	MetricsIntegrationReasonHealthy        MetricsIntegrationConditionReason = "Healthy"
+	MetricsIntegrationReasonReconcileError      MetricsIntegrationConditionReason = "ReconcileError"
+	MetricsIntegrationReasonMissingCRDs         MetricsIntegrationConditionReason = "MissingCRDs"
+	MetricsIntegrationReasonNoPersesTarget      MetricsIntegrationConditionReason = "NoPersesTarget"
+	MetricsIntegrationReasonNamespaceNotFound   MetricsIntegrationConditionReason = "NamespaceNotFound"
+	MetricsIntegrationReasonHealthy             MetricsIntegrationConditionReason = "Healthy"
 )
 
 // PersesTarget returns the Perses target reference, if any.
