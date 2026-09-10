@@ -20,23 +20,25 @@ import (
 	"context"
 	"time"
 
-	"github.com/istio-ecosystem/sail-operator/api/v1alpha1"
-	"github.com/istio-ecosystem/sail-operator/pkg/perses"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/istio-ecosystem/sail-operator/api/v1alpha1"
+	"github.com/istio-ecosystem/sail-operator/pkg/perses"
 )
 
 var _ = Describe("MetricsIntegration Perses provisioning", Ordered, func() {
 	const (
 		integrationName = "test-perses"
 		namespaceName   = "metricsintegration-monitoring"
+		datasourceName  = perses.DefaultDatasourceName
 	)
 
 	ctx := context.Background()
@@ -82,6 +84,13 @@ var _ = Describe("MetricsIntegration Perses provisioning", Ordered, func() {
 		}
 
 		Expect(k8sClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespaceName}})).To(Succeed())
+
+		datasource := &unstructured.Unstructured{}
+		datasource.SetGroupVersionKind(schema.GroupVersionKind{Group: "perses.dev", Version: "v1alpha2", Kind: "PersesDatasource"})
+		datasource.SetName(datasourceName)
+		datasource.SetNamespace(namespaceName)
+		datasource.Object["spec"] = map[string]interface{}{}
+		Expect(k8sClient.Create(ctx, datasource)).To(Succeed())
 	})
 
 	AfterAll(func() {
@@ -89,21 +98,18 @@ var _ = Describe("MetricsIntegration Perses provisioning", Ordered, func() {
 		_ = k8sClient.Delete(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespaceName}})
 	})
 
-	It("provisions Perses datasource and dashboards", func() {
+	It("server-side applies datasource fields and provisions dashboards", func() {
 		mi := &v1alpha1.MetricsIntegration{
 			ObjectMeta: metav1.ObjectMeta{Name: integrationName},
 			Spec: v1alpha1.MetricsIntegrationSpec{
 				TargetRefs: []v1alpha1.TargetReference{{
-					Kind:      "Perses",
-					Name:      "perses",
+					Kind:      "PersesDatasource",
+					Name:      datasourceName,
 					Namespace: namespaceName,
 				}},
 				MetricsConfig: v1alpha1.MetricsConfig{
 					Type:                   v1alpha1.MetricsTypeUserWorkloadMonitoring,
 					UserWorkloadMonitoring: &v1alpha1.UserWorkloadMonitoringConfig{},
-				},
-				Perses: &v1alpha1.PersesProvisioningConfig{
-					Dashboards: []v1alpha1.IstioPersesDashboard{v1alpha1.IstioPersesDashboardControlPlane},
 				},
 			},
 		}
@@ -120,12 +126,12 @@ var _ = Describe("MetricsIntegration Perses provisioning", Ordered, func() {
 
 		ds := &unstructured.Unstructured{}
 		ds.SetGroupVersionKind(schema.GroupVersionKind{Group: "perses.dev", Version: "v1alpha2", Kind: "PersesDatasource"})
-		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespaceName, Name: v1alpha1.DefaultPersesDatasourceName}, ds)).To(Succeed())
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespaceName, Name: datasourceName}, ds)).To(Succeed())
+		Expect(ds.GetOwnerReferences()).To(BeEmpty())
 
 		list := &unstructured.UnstructuredList{}
 		list.SetGroupVersionKind(schema.GroupVersionKind{Group: "perses.dev", Version: "v1alpha2", Kind: "PersesDashboardList"})
 		Expect(k8sClient.List(ctx, list, client.InNamespace(namespaceName))).To(Succeed())
-		Expect(list.Items).To(HaveLen(1))
-		Expect(list.Items[0].GetName()).To(Equal("istio-control-plane"))
+		Expect(list.Items).To(HaveLen(len(perses.ProductDashboards)))
 	})
 })

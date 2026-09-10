@@ -76,49 +76,20 @@ spec:
                 required:
                 - monitoringStackRef
                 type: object
-              perses:
-                description: |-
-                  Perses customizes datasource and dashboard provisioning when targetRefs
-                  includes kind Perses. Ignored when no Perses targetRef is present.
-                properties:
-                  dashboards:
-                    description: |-
-                      Dashboards selects productized Istio Perses dashboards to install.
-                      Omit to install all six dashboards.
-                    items:
-                      description: IstioPersesDashboard identifies a productized Istio
-                        Perses dashboard.
-                      enum:
-                      - ControlPlane
-                      - Mesh
-                      - Performance
-                      - Service
-                      - Workload
-                      - Ztunnel
-                      type: string
-                    type: array
-                  datasourceName:
-                    default: prometheus-datasource
-                    description: |-
-                      DatasourceName is the metadata.name of the PersesDatasource the controller creates.
-                      Defaults to "prometheus-datasource".
-                    type: string
-                type: object
               targetRefs:
                 description: TargetRefs specifies the resources that this integration
                   configures.
                 items:
-                  description: |-
-                    TargetReference identifies a resource that an Integration configures or a Perses
-                    project namespace where the controller provisions PersesDatasource and PersesDashboard resources.
+                  description: TargetReference identifies a resource that an Integration
+                    configures.
                   properties:
                     kind:
                       description: 'Kind specifies the target kind: "Istio", "Kiali",
-                        or "Perses".'
+                        or "PersesDatasource".'
                       enum:
                       - Istio
                       - Kiali
-                      - Perses
+                      - PersesDatasource
                       type: string
                     name:
                       description: Name is the name of the target resource.
@@ -126,7 +97,7 @@ spec:
                     namespace:
                       description: |-
                         Namespace is the namespace of the target resource.
-                        Required for namespace-scoped resources like Kiali and for Perses (project namespace).
+                        Required for namespace-scoped resources like Kiali and PersesDatasource.
                       type: string
                   required:
                   - kind

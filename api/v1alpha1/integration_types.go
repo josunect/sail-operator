@@ -14,18 +14,17 @@
 
 package v1alpha1
 
-// TargetReference identifies a resource that an Integration configures or a Perses
-// project namespace where the controller provisions PersesDatasource and PersesDashboard resources.
+// TargetReference identifies a resource that an Integration configures.
 type TargetReference struct {
-	// Kind specifies the target kind: "Istio", "Kiali", or "Perses".
-	// +kubebuilder:validation:Enum=Istio;Kiali;Perses
+	// Kind specifies the target kind: "Istio", "Kiali", or "PersesDatasource".
+	// +kubebuilder:validation:Enum=Istio;Kiali;PersesDatasource
 	Kind string `json:"kind"`
 
 	// Name is the name of the target resource.
 	Name string `json:"name"`
 
 	// Namespace is the namespace of the target resource.
-	// Required for namespace-scoped resources like Kiali and for Perses (project namespace).
+	// Required for namespace-scoped resources like Kiali and PersesDatasource.
 	// +optional
 	Namespace string `json:"namespace,omitempty"`
 }

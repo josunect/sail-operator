@@ -17,21 +17,12 @@ package perses
 import (
 	"testing"
 
-	"github.com/istio-ecosystem/sail-operator/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-func TestResolveDashboards(t *testing.T) {
-	selected := []v1alpha1.IstioPersesDashboard{
-		v1alpha1.IstioPersesDashboardMesh,
-		v1alpha1.IstioPersesDashboardService,
-	}
-	got := ResolveDashboards(selected)
-	if len(got) != 2 {
-		t.Fatalf("expected 2 dashboards, got %d", len(got))
-	}
-	if got[0].Name != "istio-mesh-dashboard" || got[1].Name != "istio-service-dashboard" {
-		t.Fatalf("unexpected dashboard names: %+v", got)
+func TestProductDashboards(t *testing.T) {
+	if len(ProductDashboards) != 6 {
+		t.Fatalf("expected 6 dashboards, got %d", len(ProductDashboards))
 	}
 }
 
@@ -52,16 +43,5 @@ func TestBundledDashboardsHaveSpecConfig(t *testing.T) {
 		if !found || len(config) == 0 {
 			t.Fatalf("dashboard %s must define spec.config", def.Filename)
 		}
-	}
-}
-
-func TestSelectedDashboardsDefault(t *testing.T) {
-	spec := v1alpha1.MetricsIntegrationSpec{
-		MetricsConfig: v1alpha1.MetricsConfig{
-			Type: v1alpha1.MetricsTypeUserWorkloadMonitoring,
-		},
-	}
-	if len(spec.SelectedDashboards()) != 6 {
-		t.Fatalf("expected 6 default dashboards, got %d", len(spec.SelectedDashboards()))
 	}
 }

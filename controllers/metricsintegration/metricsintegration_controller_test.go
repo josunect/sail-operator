@@ -23,13 +23,14 @@ import (
 	"github.com/istio-ecosystem/sail-operator/pkg/perses"
 	"github.com/istio-ecosystem/sail-operator/pkg/scheme"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-func TestReconcileNoPersesTarget(t *testing.T) {
+func TestReconcileWithoutPersesDatasourceTarget(t *testing.T) {
 	ctx := context.Background()
 	mi := &v1alpha1.MetricsIntegration{
 		ObjectMeta: metav1.ObjectMeta{Name: "test"},
@@ -52,8 +53,8 @@ func TestReconcileNoPersesTarget(t *testing.T) {
 		Build()
 	r := NewReconciler(config.ReconcilerConfig{}, cl, scheme.Scheme)
 
-	if _, err := r.Reconcile(ctx, mi); err == nil {
-		t.Fatal("expected validation error when Perses target is missing")
+	if _, err := r.Reconcile(ctx, mi); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
 	}
 
 	got := &v1alpha1.MetricsIntegration{}
@@ -62,22 +63,23 @@ func TestReconcileNoPersesTarget(t *testing.T) {
 	}
 
 	reconciled := got.Status.GetCondition(v1alpha1.MetricsIntegrationConditionReconciled)
-	if reconciled.Status != metav1.ConditionFalse {
-		t.Fatalf("expected Reconciled=False, got %s", reconciled.Status)
+	if reconciled.Status != metav1.ConditionTrue {
+		t.Fatalf("expected Reconciled=True, got %+v", reconciled)
 	}
-	if reconciled.Reason != v1alpha1.MetricsIntegrationReasonNoPersesTarget {
-		t.Fatalf("expected reason %q, got %q", v1alpha1.MetricsIntegrationReasonNoPersesTarget, reconciled.Reason)
+	persesCond := got.Status.GetCondition(v1alpha1.MetricsIntegrationConditionPersesAvailable)
+	if persesCond.Status != metav1.ConditionUnknown {
+		t.Fatalf("expected PersesAvailable to be unset, got %+v", persesCond)
 	}
 }
 
 func TestReconcileMissingPersesCRDs(t *testing.T) {
 	ctx := context.Background()
-	mi := metricsIntegrationWithPerses("monitoring")
+	mi := metricsIntegrationWithPersesDatasource("monitoring")
 
 	cl := fake.NewClientBuilder().
 		WithScheme(scheme.Scheme).
 		WithStatusSubresource(&v1alpha1.MetricsIntegration{}).
-		WithObjects(mi, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "monitoring"}}).
+		WithObjects(mi, testUserDatasource("monitoring", perses.DefaultDatasourceName)).
 		Build()
 	r := NewReconciler(config.ReconcilerConfig{}, cl, scheme.Scheme)
 
@@ -106,17 +108,14 @@ func TestReconcileMissingPersesCRDs(t *testing.T) {
 
 func TestReconcilePersesProvisioning(t *testing.T) {
 	ctx := context.Background()
-	mi := metricsIntegrationWithPerses("monitoring")
-	mi.Spec.Perses = &v1alpha1.PersesProvisioningConfig{
-		Dashboards: []v1alpha1.IstioPersesDashboard{v1alpha1.IstioPersesDashboardControlPlane},
-	}
+	mi := metricsIntegrationWithPersesDatasource("monitoring")
 
 	cl := fake.NewClientBuilder().
 		WithScheme(scheme.Scheme).
 		WithStatusSubresource(&v1alpha1.MetricsIntegration{}).
 		WithObjects(
 			mi,
-			&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "monitoring"}},
+			testUserDatasource("monitoring", perses.DefaultDatasourceName),
 			persesCRD(perses.PersesDatasourceCRD, "PersesDatasource"),
 			persesCRD(perses.PersesDashboardCRD, "PersesDashboard"),
 		).
@@ -143,7 +142,36 @@ func TestReconcilePersesProvisioning(t *testing.T) {
 	}
 }
 
-func metricsIntegrationWithPerses(namespace string) *v1alpha1.MetricsIntegration {
+func TestReconcileMissingDatasource(t *testing.T) {
+	ctx := context.Background()
+	mi := metricsIntegrationWithPersesDatasource("monitoring")
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme.Scheme).
+		WithStatusSubresource(&v1alpha1.MetricsIntegration{}).
+		WithObjects(
+			mi,
+			persesCRD(perses.PersesDatasourceCRD, "PersesDatasource"),
+			persesCRD(perses.PersesDashboardCRD, "PersesDashboard"),
+		).
+		Build()
+	r := NewReconciler(config.ReconcilerConfig{}, cl, scheme.Scheme)
+
+	if _, err := r.Reconcile(ctx, mi); err == nil {
+		t.Fatal("expected validation error when datasource is missing")
+	}
+
+	got := &v1alpha1.MetricsIntegration{}
+	if err := cl.Get(ctx, types.NamespacedName{Name: mi.Name}, got); err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	reconciled := got.Status.GetCondition(v1alpha1.MetricsIntegrationConditionReconciled)
+	if reconciled.Reason != v1alpha1.MetricsIntegrationReasonDatasourceNotFound {
+		t.Fatalf("expected reason %q, got %q", v1alpha1.MetricsIntegrationReasonDatasourceNotFound, reconciled.Reason)
+	}
+}
+
+func metricsIntegrationWithPersesDatasource(namespace string) *v1alpha1.MetricsIntegration {
 	return &v1alpha1.MetricsIntegration{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-perses",
@@ -151,8 +179,8 @@ func metricsIntegrationWithPerses(namespace string) *v1alpha1.MetricsIntegration
 		},
 		Spec: v1alpha1.MetricsIntegrationSpec{
 			TargetRefs: []v1alpha1.TargetReference{{
-				Kind:      "Perses",
-				Name:      "perses",
+				Kind:      "PersesDatasource",
+				Name:      perses.DefaultDatasourceName,
 				Namespace: namespace,
 			}},
 			MetricsConfig: v1alpha1.MetricsConfig{
@@ -161,6 +189,15 @@ func metricsIntegrationWithPerses(namespace string) *v1alpha1.MetricsIntegration
 			},
 		},
 	}
+}
+
+func testUserDatasource(namespace, name string) *unstructured.Unstructured {
+	ds := &unstructured.Unstructured{}
+	ds.SetGroupVersionKind(schema.GroupVersionKind{Group: "perses.dev", Version: "v1alpha2", Kind: "PersesDatasource"})
+	ds.SetName(name)
+	ds.SetNamespace(namespace)
+	ds.Object["spec"] = map[string]interface{}{}
+	return ds
 }
 
 func persesCRD(name, kind string) *apiextensionsv1.CustomResourceDefinition {

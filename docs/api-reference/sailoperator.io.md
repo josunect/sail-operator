@@ -3919,28 +3919,6 @@ _Appears in:_
 | `monitoringStackRef` _[NamespacedReference](#namespacedreference)_ | MonitoringStackRef is a reference to a MonitoringStack resource that defines the Prometheus stack used for scraping Istio metrics. |  |  |
 
 
-#### IstioPersesDashboard
-
-_Underlying type:_ _string_
-
-IstioPersesDashboard identifies a productized Istio Perses dashboard.
-
-_Validation:_
-- Enum: [ControlPlane Mesh Performance Service Workload Ztunnel]
-
-_Appears in:_
-- [PersesProvisioningConfig](#persesprovisioningconfig)
-
-| Field | Description |
-| --- | --- |
-| `ControlPlane` |  |
-| `Mesh` |  |
-| `Performance` |  |
-| `Service` |  |
-| `Workload` |  |
-| `Ztunnel` |  |
-
-
 #### MetricsConfig
 
 
@@ -4019,7 +3997,6 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `targetRefs` _[TargetReference](#targetreference) array_ | TargetRefs specifies the resources that this integration configures. |  | MinItems: 1   |
-| `perses` _[PersesProvisioningConfig](#persesprovisioningconfig)_ | Perses customizes datasource and dashboard provisioning when targetRefs includes kind Perses. Ignored when no Perses targetRef is present. |  |  |
 | `type` _[MetricsType](#metricstype)_ | Type specifies the metrics integration type. |  | Enum: [UserWorkloadMonitoring ClusterObservabilityOperator]   |
 | `userWorkloadMonitoring` _[UserWorkloadMonitoringConfig](#userworkloadmonitoringconfig)_ | UserWorkloadMonitoring configures integration with OpenShift User Workload Monitoring. |  |  |
 | `clusterObservabilityOperator` _[ClusterObservabilityOperatorConfig](#clusterobservabilityoperatorconfig)_ | ClusterObservabilityOperator configures integration with the Cluster Observability Operator's MonitoringStack resource for metrics collection. |  |  |
@@ -4078,29 +4055,11 @@ _Appears in:_
 | `namespace` _string_ |  |  |  |
 
 
-#### PersesProvisioningConfig
-
-
-
-PersesProvisioningConfig controls Perses CRs created by the Integrations controller.
-
-
-
-_Appears in:_
-- [MetricsIntegrationSpec](#metricsintegrationspec)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `datasourceName` _string_ | DatasourceName is the metadata.name of the PersesDatasource the controller creates. Defaults to "prometheus-datasource". | prometheus-datasource |  |
-| `dashboards` _[IstioPersesDashboard](#istiopersesdashboard) array_ | Dashboards selects productized Istio Perses dashboards to install. Omit to install all six dashboards. |  | Enum: [ControlPlane Mesh Performance Service Workload Ztunnel]   |
-
-
 #### TargetReference
 
 
 
-TargetReference identifies a resource that an Integration configures or a Perses
-project namespace where the controller provisions PersesDatasource and PersesDashboard resources.
+TargetReference identifies a resource that an Integration configures.
 
 
 
@@ -4109,9 +4068,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `kind` _string_ | Kind specifies the target kind: "Istio", "Kiali", or "Perses". |  | Enum: [Istio Kiali Perses]   |
+| `kind` _string_ | Kind specifies the target kind: "Istio", "Kiali", or "PersesDatasource". |  | Enum: [Istio Kiali PersesDatasource]   |
 | `name` _string_ | Name is the name of the target resource. |  |  |
-| `namespace` _string_ | Namespace is the namespace of the target resource. Required for namespace-scoped resources like Kiali and for Perses (project namespace). |  |  |
+| `namespace` _string_ | Namespace is the namespace of the target resource. Required for namespace-scoped resources like Kiali and PersesDatasource. |  |  |
 
 
 #### UserWorkloadMonitoringConfig

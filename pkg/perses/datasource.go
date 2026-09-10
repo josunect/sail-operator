@@ -27,9 +27,47 @@ const (
 	persesVersion = "v1alpha2"
 )
 
-// NewDatasource builds a PersesDatasource for the given metrics integration type.
-func NewDatasource(mi *v1alpha1.MetricsIntegration, namespace, name string) (*unstructured.Unstructured, error) {
+// NewDatasourceSpec builds the mesh-related spec fields for a PersesDatasource.
+func NewDatasourceSpec(mi *v1alpha1.MetricsIntegration, name string) (map[string]interface{}, error) {
 	url, err := prometheusURL(mi)
+	if err != nil {
+		return nil, err
+	}
+
+	spec := map[string]interface{}{
+		"config": map[string]interface{}{
+			"display": map[string]interface{}{
+				"name": "Prometheus",
+			},
+			"default": true,
+			"plugin": map[string]interface{}{
+				"kind": "PrometheusDatasource",
+				"spec": map[string]interface{}{
+					"proxy": map[string]interface{}{
+						"kind": "HTTPProxy",
+						"spec": map[string]interface{}{
+							"url": url,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	if err := unstructured.SetNestedField(spec, datasourceSecretName(name), "config", "plugin", "spec", "proxy", "spec", "secret"); err != nil {
+		return nil, fmt.Errorf("set datasource secret: %w", err)
+	}
+
+	if client := openShiftDatasourceClient(mi.Spec.Type); client != nil {
+		spec["client"] = client
+	}
+
+	return spec, nil
+}
+
+// NewDatasource builds a PersesDatasource object with mesh-related fields for server-side apply.
+func NewDatasource(mi *v1alpha1.MetricsIntegration, namespace, name string) (*unstructured.Unstructured, error) {
+	spec, err := NewDatasourceSpec(mi, name)
 	if err != nil {
 		return nil, err
 	}
@@ -42,37 +80,9 @@ func NewDatasource(mi *v1alpha1.MetricsIntegration, namespace, name string) (*un
 	})
 	obj.SetName(name)
 	obj.SetNamespace(namespace)
-	obj.SetLabels(map[string]string{
-		PartOfLabelKey: PartOfLabelValue,
-		ManagedByLabel: ManagedByValue,
-	})
-	if err := unstructured.SetNestedMap(obj.Object, map[string]interface{}{
-		"display": map[string]interface{}{
-			"name": "Prometheus",
-		},
-		"default": true,
-		"plugin": map[string]interface{}{
-			"kind": "PrometheusDatasource",
-			"spec": map[string]interface{}{
-				"proxy": map[string]interface{}{
-					"kind": "HTTPProxy",
-					"spec": map[string]interface{}{
-						"url":    url,
-						"secret": datasourceSecretName(name),
-					},
-				},
-			},
-		},
-	}, "spec", "config"); err != nil {
+	if err := unstructured.SetNestedMap(obj.Object, spec, "spec"); err != nil {
 		return nil, fmt.Errorf("set datasource spec: %w", err)
 	}
-
-	if client := openShiftDatasourceClient(mi.Spec.Type); client != nil {
-		if err := unstructured.SetNestedMap(obj.Object, client, "spec", "client"); err != nil {
-			return nil, fmt.Errorf("set datasource client: %w", err)
-		}
-	}
-
 	return obj, nil
 }
 

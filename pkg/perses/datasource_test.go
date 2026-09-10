@@ -30,7 +30,7 @@ func TestNewDatasourceOpenShiftUWM(t *testing.T) {
 		},
 	}
 
-	ds, err := NewDatasource(mi, "monitoring", v1alpha1.DefaultPersesDatasourceName)
+	ds, err := NewDatasource(mi, "monitoring", DefaultDatasourceName)
 	if err != nil {
 		t.Fatalf("NewDatasource() error = %v", err)
 	}

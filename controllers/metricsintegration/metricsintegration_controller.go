@@ -64,21 +64,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, mi *v1alpha1.MetricsIntegrat
 }
 
 func (r *Reconciler) doReconcile(ctx context.Context, mi *v1alpha1.MetricsIntegration) error {
-	ref, ok := mi.Spec.PersesTarget()
-	if !ok {
-		return reconciler.NewValidationError(
-			"spec.targetRefs must include a Perses target to provision datasources and dashboards",
-		)
-	}
-
-	namespace, err := perses.PersesProjectNamespace(ref)
-	if err != nil {
-		return reconciler.NewValidationError(err.Error())
+	targets := mi.Spec.PersesDatasourceTargets()
+	if len(targets) == 0 {
+		return nil
 	}
 
 	result, err := (&perses.Reconciler{Client: r.Client, Scheme: r.Scheme}).Reconcile(ctx, perses.ReconcileInput{
 		Integration: mi,
-		Namespace:   namespace,
+		Targets:     targets,
 	})
 	if err != nil {
 		return err
@@ -90,15 +83,11 @@ func (r *Reconciler) doReconcile(ctx context.Context, mi *v1alpha1.MetricsIntegr
 }
 
 func (r *Reconciler) Finalize(ctx context.Context, mi *v1alpha1.MetricsIntegration) error {
-	ref, ok := mi.Spec.PersesTarget()
-	if !ok {
+	targets := mi.Spec.PersesDatasourceTargets()
+	if len(targets) == 0 {
 		return nil
 	}
-	namespace, err := perses.PersesProjectNamespace(ref)
-	if err != nil {
-		return err
-	}
-	return (&perses.Reconciler{Client: r.Client, Scheme: r.Scheme}).Finalize(ctx, mi, namespace)
+	return (&perses.Reconciler{Client: r.Client, Scheme: r.Scheme}).Finalize(ctx, mi, targets)
 }
 
 func (r *Reconciler) updateStatus(ctx context.Context, mi *v1alpha1.MetricsIntegration, reconcileErr error) error {
@@ -106,8 +95,8 @@ func (r *Reconciler) updateStatus(ctx context.Context, mi *v1alpha1.MetricsInteg
 	status.ObservedGeneration = mi.Generation
 	status.SetCondition(r.reconciledCondition(reconcileErr))
 
-	if ref, ok := mi.Spec.PersesTarget(); ok {
-		status.SetCondition(r.persesAvailableCondition(ctx, ref, reconcileErr))
+	if len(mi.Spec.PersesDatasourceTargets()) > 0 {
+		status.SetCondition(r.persesAvailableCondition(ctx, reconcileErr))
 	}
 
 	return reconciler.UpdateStatus(ctx, r.Client, mi, mi.Status, status, nil)
@@ -128,8 +117,11 @@ func (r *Reconciler) reconciledCondition(reconcileErr error) v1.StatusCondition 
 
 func (r *Reconciler) reconciliationReason(reconcileErr error) v1alpha1.MetricsIntegrationConditionReason {
 	if reconciler.IsValidationError(reconcileErr) {
-		if strings.Contains(reconcileErr.Error(), "Perses target") {
-			return v1alpha1.MetricsIntegrationReasonNoPersesTarget
+		if strings.Contains(reconcileErr.Error(), "PersesDatasource") && strings.Contains(reconcileErr.Error(), "not found") {
+			return v1alpha1.MetricsIntegrationReasonDatasourceNotFound
+		}
+		if strings.Contains(reconcileErr.Error(), "targetRef requires namespace") {
+			return v1alpha1.MetricsIntegrationReasonReconcileError
 		}
 	}
 	if reconciler.IsTransientError(reconcileErr) {
@@ -137,14 +129,11 @@ func (r *Reconciler) reconciliationReason(reconcileErr error) v1alpha1.MetricsIn
 		if strings.Contains(msg, "CRDs") {
 			return v1alpha1.MetricsIntegrationReasonMissingCRDs
 		}
-		if strings.Contains(msg, "namespace") {
-			return v1alpha1.MetricsIntegrationReasonNamespaceNotFound
-		}
 	}
 	return v1alpha1.MetricsIntegrationReasonReconcileError
 }
 
-func (r *Reconciler) persesAvailableCondition(ctx context.Context, ref v1alpha1.TargetReference, reconcileErr error) v1.StatusCondition {
+func (r *Reconciler) persesAvailableCondition(ctx context.Context, reconcileErr error) v1.StatusCondition {
 	c := v1.StatusCondition{Type: v1.ConditionType(v1alpha1.MetricsIntegrationConditionPersesAvailable)}
 	available, err := perses.CRDsAvailable(ctx, r.Client)
 	if err != nil {
@@ -163,12 +152,6 @@ func (r *Reconciler) persesAvailableCondition(ctx context.Context, ref v1alpha1.
 		c.Status = metav1.ConditionFalse
 		c.Reason = r.reconciliationReason(reconcileErr)
 		c.Message = reconcileErr.Error()
-		return c
-	}
-	if ref.Namespace == "" {
-		c.Status = metav1.ConditionFalse
-		c.Reason = v1alpha1.MetricsIntegrationReasonReconcileError
-		c.Message = "Perses targetRef requires namespace"
 		return c
 	}
 	c.Status = metav1.ConditionTrue

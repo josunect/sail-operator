@@ -8,16 +8,25 @@ Observability Operator) and on KinD.
 
 == Scope
 
-The current implementation provisions `PersesDatasource` and `PersesDashboard` resources
-when `spec.targetRefs` includes a `Perses` target. It configures the datasource for
-OpenShift User Workload Monitoring (UWM) Thanos. It does **not** yet:
+When `spec.targetRefs` includes `kind: PersesDatasource`, the Integrations controller:
+
+* Server-side applies mesh-related fields onto the user-created `PersesDatasource`
+  (OpenShift User Workload Monitoring Thanos URL, TLS, and proxy secret for UWM)
+* Creates six productized Istio `PersesDashboard` resources in the datasource namespace
+
+The user must create the `PersesDatasource` CR with a minimal `spec.config` skeleton before
+applying `MetricsIntegration`. The Perses operator CRD requires `spec.config` and
+`spec.config.default`; an empty `spec: {}` is rejected. The Integrations controller
+server-side applies the mesh-specific fields (UWM Thanos URL, TLS, proxy secret) onto
+that resource. The controller does not create the datasource, install Perses, or configure
+Kiali `external_services.perses`.
+
+A `MetricsIntegration` without a `PersesDatasource` targetRef reconciles successfully
+when no Perses work is requested. It does **not** yet:
 
 * Configure Istio, Kiali, or UWM scraping automatically
 * Integrate with `ClusterObservabilityOperator` metrics type
 * Create `ServiceMonitor` / `PodMonitor` resources
-
-A `MetricsIntegration` without a `Perses` `targetRef` is rejected with
-`Reconciled=False` and reason `NoPersesTarget`.
 
 == End-to-end test on OpenShift
 
@@ -102,17 +111,39 @@ Expected:
   `openshift-cluster-observability-operator`
 * OpenShift Console shows **Observe → Dashboards (Perses)**
 
-=== 2. Create the Perses project namespace
+=== 2. Create the Perses project namespace and datasource
 
-`MetricsIntegration` provisions resources into the namespace referenced by
-`spec.targetRefs`. That namespace becomes the Perses project name in the console.
+`MetricsIntegration` provisions dashboards into the namespace of each
+`PersesDatasource` targetRef. That namespace becomes the Perses project name in the
+console.
 
 [source,bash]
 ----
 oc create namespace monitoring
 ----
 
-Create this namespace **before** applying `MetricsIntegration`.
+Create the namespace and a user-owned `PersesDatasource` **before** applying
+`MetricsIntegration`:
+
+[source,yaml]
+----
+apiVersion: perses.dev/v1alpha2
+kind: PersesDatasource
+metadata:
+  name: prometheus-datasource
+  namespace: monitoring
+spec:
+  config:
+    display:
+      name: prometheus-datasource
+    default: true
+    plugin:
+      kind: PrometheusDatasource
+      spec: {}
+----
+
+The placeholder `plugin.spec` is intentionally empty. `MetricsIntegration` fills in the
+OpenShift UWM proxy URL, authentication, and TLS via server-side apply.
 
 === 3. Deploy Sail Operator
 
@@ -192,18 +223,24 @@ Thanos.
 
 === 5. Create MetricsIntegration
 
-Apply the sample or an equivalent manifest:
+Apply the `PersesDatasource` from step 2 first, then `MetricsIntegration`, or apply the
+sample manifest which contains both resources in the correct order:
 
 [source,bash]
 ----
 oc apply -f chart/samples/metricsintegration-perses-sample.yaml
 ----
 
-The sample provisions:
+The sample includes:
 
-* One `PersesDatasource` named `prometheus-datasource`
-* Six Istio `PersesDashboard` resources
-* OpenShift UWM datasource settings (Thanos URL, TLS service CA, proxy secret)
+* A user-created `PersesDatasource` named `prometheus-datasource` (minimal `spec.config`
+  skeleton required by the Perses operator CRD)
+* A `MetricsIntegration` that targets that datasource
+
+The controller then:
+
+* Server-side applies OpenShift UWM settings onto the datasource (Thanos URL, TLS, proxy secret)
+* Creates six Istio `PersesDashboard` resources
 
 Verify reconciliation:
 
@@ -219,7 +256,8 @@ oc logs -n sail-operator deploy/sail-operator --tail=50
 Expected:
 
 * `Reconciled=True`, `PersesAvailable=True`
-* `prometheus-datasource` and six dashboards in `monitoring`
+* `prometheus-datasource` exists without an `ownerReference` to `MetricsIntegration`
+* Six dashboards in `monitoring` owned by `MetricsIntegration`
 * Datasource spec includes `spec.client.tls` and `spec.config.plugin.spec.proxy.spec.secret`
 
 View dashboards in the console: **Observe → Dashboards (Perses) → project `monitoring`**.
@@ -453,9 +491,13 @@ deploy Istio workloads and generate traffic
 | Image in wrong namespace/registry
 | Build in `sail-operator` namespace or grant `system:image-puller`
 
-| `MetricsIntegration` `NamespaceNotFound`
-| `monitoring` namespace missing
-| Create namespace before applying `MetricsIntegration`
+| `Reconciled=False`, `DatasourceNotFound`
+| `PersesDatasource` targetRef does not exist yet
+| Create the datasource CR before or with `MetricsIntegration`
+
+| `MetricsIntegration` validation errors
+| `PersesDatasource` targetRef missing `namespace`
+| Set `namespace` on each `PersesDatasource` targetRef
 
 | Control plane healthy but no proxy metrics
 | `PodMonitor` missing in workload namespace
@@ -525,6 +567,10 @@ kubectl apply -f chart/samples/metricsintegration-perses-sample.yaml
 kubectl get persesdatasources,persesdashboards -n monitoring
 ----
 
+The sample creates the user-owned `PersesDatasource` and the `MetricsIntegration` in
+one file. The controller server-side applies mesh fields onto the datasource and creates
+the dashboards.
+
 == Status conditions
 
 [cols="1,2,2", options="header"]
@@ -532,20 +578,20 @@ kubectl get persesdatasources,persesdashboards -n monitoring
 | Condition | Reason | Meaning
 
 | `Reconciled=False`
-| `NoPersesTarget`
-| `spec.targetRefs` does not include a `Perses` target
-
-| `Reconciled=False`
 | `MissingCRDs`
-| `perses.dev` CRDs are not installed yet
+| `perses.dev` CRDs are not installed yet (only when a `PersesDatasource` target is set)
 
 | `Reconciled=False`
-| `NamespaceNotFound`
-| The Perses project namespace from `targetRefs` does not exist yet
+| `DatasourceNotFound`
+| A `PersesDatasource` listed in `targetRefs` does not exist in the cluster
 
 | `Reconciled=True`
 | `Healthy`
-| Perses datasource and dashboards were provisioned successfully
+| Perses datasource fields were applied and dashboards were provisioned successfully
+
+| `PersesAvailable=False`
+| `MissingCRDs`
+| `kind: PersesDatasource` is set but `perses.dev` CRDs are not installed
 |===
 
 == Sample manifest

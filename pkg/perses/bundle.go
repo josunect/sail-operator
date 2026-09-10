@@ -21,7 +21,6 @@ import (
 	"io/fs"
 	"strings"
 
-	"github.com/istio-ecosystem/sail-operator/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 )
@@ -51,8 +50,7 @@ func ParseDashboard(data []byte) (*unstructured.Unstructured, error) {
 
 // RewriteDatasourceName replaces datasource references in dashboard YAML with the configured name.
 func RewriteDatasourceName(data []byte, datasourceName string) ([]byte, error) {
-	// Productized dashboards from community-mixins reference prometheus-datasource by default.
-	replaced := bytes.ReplaceAll(data, []byte(v1alpha1.DefaultPersesDatasourceName), []byte(datasourceName))
+	replaced := bytes.ReplaceAll(data, []byte(DefaultDatasourceName), []byte(datasourceName))
 	return replaced, nil
 }
 

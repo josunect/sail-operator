@@ -20,7 +20,6 @@ import (
 
 	"github.com/istio-ecosystem/sail-operator/api/v1alpha1"
 	"github.com/istio-ecosystem/sail-operator/pkg/reconciler"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -38,7 +37,7 @@ var (
 // ReconcileInput drives Perses provisioning for a MetricsIntegration.
 type ReconcileInput struct {
 	Integration *v1alpha1.MetricsIntegration
-	Namespace   string
+	Targets     []v1alpha1.TargetReference
 }
 
 // ReconcileResult captures Perses reconciliation outcome for status updates.
@@ -46,13 +45,14 @@ type ReconcileResult struct {
 	CRDsAvailable bool
 }
 
-// Reconciler provisions PersesDatasource and PersesDashboard resources.
+// Reconciler provisions Perses dashboards and server-side applies datasource fields.
 type Reconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
 
-// Reconcile creates or updates Perses resources in the target project namespace.
+// Reconcile server-side applies mesh fields onto user-created PersesDatasource resources
+// and creates productized PersesDashboard resources.
 func (r *Reconciler) Reconcile(ctx context.Context, in ReconcileInput) (ReconcileResult, error) {
 	result := ReconcileResult{}
 
@@ -65,29 +65,48 @@ func (r *Reconciler) Reconcile(ctx context.Context, in ReconcileInput) (Reconcil
 		return result, nil
 	}
 
-	if err := ensureNamespace(ctx, r.Client, in.Namespace); err != nil {
-		return result, err
-	}
-
-	mi := in.Integration
-	datasourceName := mi.Spec.DatasourceNameOrDefault()
-
-	if err := r.reconcileDatasource(ctx, mi, in.Namespace, datasourceName); err != nil {
-		return result, err
-	}
-
-	dashboards := ResolveDashboards(mi.Spec.SelectedDashboards())
-	for _, def := range dashboards {
-		if err := r.reconcileDashboard(ctx, mi, in.Namespace, datasourceName, def); err != nil {
+	for _, target := range in.Targets {
+		if err := r.reconcileTarget(ctx, in.Integration, target); err != nil {
 			return result, err
 		}
 	}
 
-	if err := r.pruneDashboards(ctx, mi, in.Namespace, dashboards); err != nil {
-		return result, err
+	return result, nil
+}
+
+func (r *Reconciler) reconcileTarget(ctx context.Context, mi *v1alpha1.MetricsIntegration, target v1alpha1.TargetReference) error {
+	namespace, err := DatasourceNamespace(target)
+	if err != nil {
+		return reconciler.NewValidationError(err.Error())
 	}
 
-	return result, nil
+	if err := r.ensureDatasourceExists(ctx, namespace, target.Name); err != nil {
+		return err
+	}
+
+	if err := r.reconcileDatasource(ctx, mi, namespace, target.Name); err != nil {
+		return err
+	}
+
+	for _, def := range ProductDashboards {
+		if err := r.reconcileDashboard(ctx, mi, namespace, target.Name, def); err != nil {
+			return err
+		}
+	}
+
+	return r.pruneDashboards(ctx, mi, namespace, ProductDashboards)
+}
+
+func (r *Reconciler) ensureDatasourceExists(ctx context.Context, namespace, name string) error {
+	existing := &unstructured.Unstructured{}
+	existing.SetGroupVersionKind(datasourceGVK)
+	if err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, existing); err != nil {
+		if apierrors.IsNotFound(err) {
+			return reconciler.NewValidationError(fmt.Sprintf("PersesDatasource %q not found in namespace %q", name, namespace))
+		}
+		return err
+	}
+	return nil
 }
 
 func (r *Reconciler) reconcileDatasource(ctx context.Context, mi *v1alpha1.MetricsIntegration, namespace, name string) error {
@@ -95,7 +114,7 @@ func (r *Reconciler) reconcileDatasource(ctx context.Context, mi *v1alpha1.Metri
 	if err != nil {
 		return err
 	}
-	return r.applyOwnedResource(ctx, mi, desired)
+	return r.serverSideApply(ctx, desired)
 }
 
 func (r *Reconciler) reconcileDashboard(ctx context.Context, mi *v1alpha1.MetricsIntegration, namespace, datasourceName string, def DashboardDefinition) error {
@@ -120,26 +139,16 @@ func (r *Reconciler) reconcileDashboard(ctx context.Context, mi *v1alpha1.Metric
 	labels[PartOfLabelKey] = PartOfLabelValue
 	labels[ManagedByLabel] = ManagedByValue
 	desired.SetLabels(labels)
-	return r.applyOwnedResource(ctx, mi, desired)
-}
 
-func (r *Reconciler) applyOwnedResource(ctx context.Context, owner *v1alpha1.MetricsIntegration, desired *unstructured.Unstructured) error {
-	if err := controllerutil.SetControllerReference(owner, desired, r.Scheme); err != nil {
+	if err := controllerutil.SetControllerReference(mi, desired, r.Scheme); err != nil {
 		return fmt.Errorf("set owner reference on %s/%s: %w", desired.GetKind(), desired.GetName(), err)
 	}
+	return r.serverSideApply(ctx, desired)
+}
 
-	existing := &unstructured.Unstructured{}
-	existing.SetGroupVersionKind(desired.GroupVersionKind())
-	key := client.ObjectKeyFromObject(desired)
-	if err := r.Get(ctx, key, existing); err != nil {
-		if apierrors.IsNotFound(err) {
-			return r.Create(ctx, desired)
-		}
-		return err
-	}
-
-	desired.SetResourceVersion(existing.GetResourceVersion())
-	return r.Update(ctx, desired)
+func (r *Reconciler) serverSideApply(ctx context.Context, desired *unstructured.Unstructured) error {
+	//nolint:staticcheck // client.Apply via Patch is the supported SSA path in controller-runtime v0.24.
+	return r.Patch(ctx, desired, client.Apply, client.FieldOwner(FieldOwner), client.ForceOwnership)
 }
 
 func (r *Reconciler) pruneDashboards(ctx context.Context, mi *v1alpha1.MetricsIntegration, namespace string, keep []DashboardDefinition) error {
@@ -173,13 +182,15 @@ func (r *Reconciler) pruneDashboards(ctx context.Context, mi *v1alpha1.MetricsIn
 	return nil
 }
 
-// Finalize removes owned Perses resources when the integration is deleted.
-// Owner references normally handle garbage collection; this is a safety net for
-// resources created before owner refs were set.
-func (r *Reconciler) Finalize(ctx context.Context, mi *v1alpha1.MetricsIntegration, namespace string) error {
-	for _, gvk := range []schema.GroupVersionKind{datasourceGVK, dashboardGVK} {
+// Finalize removes owned PersesDashboard resources when the integration is deleted.
+func (r *Reconciler) Finalize(ctx context.Context, mi *v1alpha1.MetricsIntegration, targets []v1alpha1.TargetReference) error {
+	for _, target := range targets {
+		namespace, err := DatasourceNamespace(target)
+		if err != nil {
+			continue
+		}
 		list := &unstructured.UnstructuredList{}
-		list.SetGroupVersionKind(gvk.GroupVersion().WithKind(gvk.Kind + "List"))
+		list.SetGroupVersionKind(schema.GroupVersionKind{Group: persesGroup, Version: persesVersion, Kind: "PersesDashboardList"})
 		if err := r.List(ctx, list, client.InNamespace(namespace), client.MatchingLabels{
 			PartOfLabelKey: PartOfLabelValue,
 			ManagedByLabel: ManagedByValue,
@@ -200,21 +211,10 @@ func (r *Reconciler) Finalize(ctx context.Context, mi *v1alpha1.MetricsIntegrati
 	return nil
 }
 
-func ensureNamespace(ctx context.Context, cl client.Client, name string) error {
-	ns := &corev1.Namespace{}
-	if err := cl.Get(ctx, client.ObjectKey{Name: name}, ns); err != nil {
-		if apierrors.IsNotFound(err) {
-			return reconciler.NewTransientError(fmt.Sprintf("Perses project namespace \"%s\" does not exist", name))
-		}
-		return err
-	}
-	return nil
-}
-
-// PersesProjectNamespace returns the namespace for Perses CRs from the target ref.
-func PersesProjectNamespace(ref v1alpha1.TargetReference) (string, error) {
+// DatasourceNamespace returns the namespace for a PersesDatasource targetRef.
+func DatasourceNamespace(ref v1alpha1.TargetReference) (string, error) {
 	if ref.Namespace == "" {
-		return "", fmt.Errorf("Perses targetRef requires namespace (Perses project)")
+		return "", fmt.Errorf("PersesDatasource targetRef requires namespace")
 	}
 	return ref.Namespace, nil
 }

@@ -15,8 +15,9 @@
 package v1alpha1
 
 import (
-	v1 "github.com/istio-ecosystem/sail-operator/api/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	v1 "github.com/istio-ecosystem/sail-operator/api/v1"
 )
 
 const MetricsIntegrationKind = "MetricsIntegration"
@@ -27,40 +28,8 @@ type MetricsIntegrationSpec struct {
 	// +kubebuilder:validation:MinItems=1
 	TargetRefs []TargetReference `json:"targetRefs"`
 
-	// Perses customizes datasource and dashboard provisioning when targetRefs
-	// includes kind Perses. Ignored when no Perses targetRef is present.
-	// +optional
-	Perses *PersesProvisioningConfig `json:"perses,omitempty"`
-
 	MetricsConfig `json:",inline"`
 }
-
-// PersesProvisioningConfig controls Perses CRs created by the Integrations controller.
-type PersesProvisioningConfig struct {
-	// DatasourceName is the metadata.name of the PersesDatasource the controller creates.
-	// Defaults to "prometheus-datasource".
-	// +kubebuilder:default=prometheus-datasource
-	// +optional
-	DatasourceName string `json:"datasourceName,omitempty"`
-
-	// Dashboards selects productized Istio Perses dashboards to install.
-	// Omit to install all six dashboards.
-	// +optional
-	Dashboards []IstioPersesDashboard `json:"dashboards,omitempty"`
-}
-
-// IstioPersesDashboard identifies a productized Istio Perses dashboard.
-// +kubebuilder:validation:Enum=ControlPlane;Mesh;Performance;Service;Workload;Ztunnel
-type IstioPersesDashboard string
-
-const (
-	IstioPersesDashboardControlPlane IstioPersesDashboard = "ControlPlane"
-	IstioPersesDashboardMesh         IstioPersesDashboard = "Mesh"
-	IstioPersesDashboardPerformance  IstioPersesDashboard = "Performance"
-	IstioPersesDashboardService      IstioPersesDashboard = "Service"
-	IstioPersesDashboardWorkload     IstioPersesDashboard = "Workload"
-	IstioPersesDashboardZtunnel      IstioPersesDashboard = "Ztunnel"
-)
 
 // MetricsType identifies the type of metrics integration.
 // +kubebuilder:validation:Enum=UserWorkloadMonitoring;ClusterObservabilityOperator
@@ -123,52 +92,22 @@ const (
 	MetricsIntegrationConditionReconciled      MetricsIntegrationConditionType = "Reconciled"
 	MetricsIntegrationConditionPersesAvailable MetricsIntegrationConditionType = "PersesAvailable"
 
-	MetricsIntegrationReasonReconcileError      MetricsIntegrationConditionReason = "ReconcileError"
-	MetricsIntegrationReasonMissingCRDs         MetricsIntegrationConditionReason = "MissingCRDs"
-	MetricsIntegrationReasonNoPersesTarget      MetricsIntegrationConditionReason = "NoPersesTarget"
-	MetricsIntegrationReasonNamespaceNotFound   MetricsIntegrationConditionReason = "NamespaceNotFound"
-	MetricsIntegrationReasonHealthy             MetricsIntegrationConditionReason = "Healthy"
+	MetricsIntegrationReasonReconcileError     MetricsIntegrationConditionReason = "ReconcileError"
+	MetricsIntegrationReasonMissingCRDs        MetricsIntegrationConditionReason = "MissingCRDs"
+	MetricsIntegrationReasonDatasourceNotFound MetricsIntegrationConditionReason = "DatasourceNotFound"
+	MetricsIntegrationReasonNamespaceNotFound  MetricsIntegrationConditionReason = "NamespaceNotFound"
+	MetricsIntegrationReasonHealthy            MetricsIntegrationConditionReason = "Healthy"
 )
 
-// PersesTarget returns the Perses target reference, if any.
-func (s *MetricsIntegrationSpec) PersesTarget() (TargetReference, bool) {
+// PersesDatasourceTargets returns all PersesDatasource target references.
+func (s *MetricsIntegrationSpec) PersesDatasourceTargets() []TargetReference {
+	var refs []TargetReference
 	for _, ref := range s.TargetRefs {
-		if ref.Kind == "Perses" {
-			return ref, true
+		if ref.Kind == "PersesDatasource" {
+			refs = append(refs, ref)
 		}
 	}
-	return TargetReference{}, false
-}
-
-// DatasourceNameOrDefault returns the Perses datasource CR name.
-func (s *MetricsIntegrationSpec) DatasourceNameOrDefault() string {
-	if s.Perses != nil && s.Perses.DatasourceName != "" {
-		return s.Perses.DatasourceName
-	}
-	return DefaultPersesDatasourceName
-}
-
-// SelectedDashboards returns the dashboards to install (all six when unset).
-func (s *MetricsIntegrationSpec) SelectedDashboards() []IstioPersesDashboard {
-	if s.Perses != nil && len(s.Perses.Dashboards) > 0 {
-		return s.Perses.Dashboards
-	}
-	return AllIstioPersesDashboards()
-}
-
-// DefaultPersesDatasourceName is the default PersesDatasource metadata.name.
-const DefaultPersesDatasourceName = "prometheus-datasource"
-
-// AllIstioPersesDashboards returns the six supported product dashboards.
-func AllIstioPersesDashboards() []IstioPersesDashboard {
-	return []IstioPersesDashboard{
-		IstioPersesDashboardControlPlane,
-		IstioPersesDashboardMesh,
-		IstioPersesDashboardPerformance,
-		IstioPersesDashboardService,
-		IstioPersesDashboardWorkload,
-		IstioPersesDashboardZtunnel,
-	}
+	return refs
 }
 
 // +kubebuilder:object:root=true
