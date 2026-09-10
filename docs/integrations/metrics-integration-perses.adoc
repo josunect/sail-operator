@@ -1,24 +1,473 @@
 = MetricsIntegration Perses provisioning
 :toc:
-:toclevels: 2
+:toclevels: 3
 
-This document describes the Perses slice of `MetricsIntegration` and how to test it locally on KinD.
+This document describes how to provision Perses datasources and Istio dashboards with
+`MetricsIntegration`, and how to test the full flow on OpenShift (with the Cluster
+Observability Operator) and on KinD.
 
 == Scope
 
-The current implementation provisions `PersesDatasource` and `PersesDashboard` resources when `spec.targetRefs` includes a `Perses` target. It does not yet configure Istio, Kiali, User Workload Monitoring, or Cluster Observability Operator resources.
+The current implementation provisions `PersesDatasource` and `PersesDashboard` resources
+when `spec.targetRefs` includes a `Perses` target. It configures the datasource for
+OpenShift User Workload Monitoring (UWM) Thanos. It does **not** yet:
 
-A `MetricsIntegration` without a `Perses` `targetRef` is rejected with `Reconciled=False` and reason `NoPersesTarget`.
+* Configure Istio, Kiali, or UWM scraping automatically
+* Integrate with `ClusterObservabilityOperator` metrics type
+* Create `ServiceMonitor` / `PodMonitor` resources
 
-== Prerequisites
+A `MetricsIntegration` without a `Perses` `targetRef` is rejected with
+`Reconciled=False` and reason `NoPersesTarget`.
 
-* KinD cluster created with the Sail Operator development workflow
-* Helm 3
-* Docker
+== End-to-end test on OpenShift
+
+This is the flow validated on OpenShift with COO-managed Perses, Sail Operator,
+User Workload Monitoring, Istio, and Bookinfo.
+
+=== Prerequisites
+
+* OpenShift 4.15 or later
+* Cluster administrator access (`cluster-admin`)
+* Cluster Observability Operator (COO) 1.5 or later
+* User Workload Monitoring enabled
++
+Check UWM:
++
+[source,bash]
+----
+oc get namespace openshift-user-workload-monitoring
+----
++
+If the namespace does not exist, enable UWM:
+https://docs.openshift.com/container-platform/latest/observability/monitoring/enabling-monitoring-for-user-defined-projects.html[Enable monitoring for user-defined projects].
+
+* Sail Operator installed (OperatorHub or custom build; see below)
+* `perses.dev` CRDs present (installed automatically with COO)
+
+=== Important: what not to do with COO
+
+When Perses is managed by COO, avoid these mistakes (they caused failures during testing):
+
+* **Do not** install the upstream Helm `perses-operator` chart in a separate namespace.
+  COO already runs a `perses-operator` in `openshift-cluster-observability-operator`.
+  A second operator causes conflicting reconciliation and `perses-0` restart loops.
+* **Do not** create a standalone `Perses` CR in `monitoring` when using the COO UI plugin.
+  COO deploys `perses-0` in `openshift-cluster-observability-operator` when the
+  `UIPlugin` enables Perses.
+* **Do not** run `make run` while the operator Deployment is already running in the cluster
+  (leader election and port `8443` conflicts).
+* **Do not** commit or deploy local-only image tags such as `localhost:5000/sail-operator:...`
+  in `chart/values.yaml` or the OLM bundle.
+
+=== 1. Install Cluster Observability Operator and enable Perses
+
+Install COO from OperatorHub if it is not already installed:
+
+[source,bash]
+----
+oc get csv -n openshift-cluster-observability-operator
+----
+
+Enable the monitoring UI plugin with Perses:
+
+[source,yaml]
+----
+apiVersion: observability.openshift.io/v1alpha1
+kind: UIPlugin
+metadata:
+  name: monitoring
+spec:
+  type: Monitoring
+  monitoring:
+    perses:
+      enabled: true
+----
+
+[source,bash]
+----
+oc apply -f uiplugin-monitoring.yaml
+----
+
+Verify COO and Perses:
+
+[source,bash]
+----
+oc get pods -n openshift-cluster-observability-operator
+oc get uiplugin monitoring
+----
+
+Expected:
+
+* `perses-operator` and `perses-0` pods are `Running` in
+  `openshift-cluster-observability-operator`
+* OpenShift Console shows **Observe → Dashboards (Perses)**
+
+=== 2. Create the Perses project namespace
+
+`MetricsIntegration` provisions resources into the namespace referenced by
+`spec.targetRefs`. That namespace becomes the Perses project name in the console.
+
+[source,bash]
+----
+oc create namespace monitoring
+----
+
+Create this namespace **before** applying `MetricsIntegration`.
+
+=== 3. Deploy Sail Operator
+
+==== Option A: OperatorHub / OLM (recommended for production-like tests)
+
+Install Sail Operator from OperatorHub or an existing subscription. Verify:
+
+[source,bash]
+----
+oc get csv -n sail-operator
+oc get pods -n sail-operator
+----
+
+The operator ClusterServiceVersion must include RBAC for:
+
+* `metricsintegrations` (`sailoperator.io`)
+* `persesdatasources` and `persesdashboards` (`perses.dev`)
+
+==== Option B: Build and deploy from source
+
+Use this when testing a development branch on OpenShift.
+
+[source,bash]
+----
+# From the sail-operator repository root
+oc new-project sail-operator || oc project sail-operator
+
+# If local Docker/Podman cannot push to the cluster registry, build in-cluster:
+oc new-build --binary --name=sail-operator -n sail-operator
+oc start-build sail-operator --from-dir=. --follow -n sail-operator
+
+# Deploy CRDs and operator (without bundling Istio CRDs if they already exist)
+make install
+HELM_TEMPL_DEF_FLAGS="--values chart/values.yaml" make deploy
+oc rollout status deployment/sail-operator -n sail-operator
+----
+
+If the operator image is built in a different namespace than `sail-operator`, grant pull
+access:
+
+[source,bash]
+----
+oc policy add-role-to-group system:image-puller \
+  system:serviceaccounts:sail-operator -n <build-namespace>
+----
+
+Or push the image to a namespace the deployment can pull from.
+
+=== 4. Grant Perses access to monitoring metrics
+
+Perses queries Thanos using the `perses-sa` service account. Grant it
+`cluster-monitoring-view`:
+
+[source,yaml]
+----
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: perses-cluster-monitoring-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-monitoring-view
+subjects:
+- kind: ServiceAccount
+  name: perses-sa
+  namespace: openshift-cluster-observability-operator
+----
+
+[source,bash]
+----
+oc apply -f perses-monitoring-rbac.yaml
+----
+
+Without this binding, dashboard panels may show `No data` even when metrics exist in
+Thanos.
+
+=== 5. Create MetricsIntegration
+
+Apply the sample or an equivalent manifest:
+
+[source,bash]
+----
+oc apply -f chart/samples/metricsintegration-perses-sample.yaml
+----
+
+The sample provisions:
+
+* One `PersesDatasource` named `prometheus-datasource`
+* Six Istio `PersesDashboard` resources
+* OpenShift UWM datasource settings (Thanos URL, TLS service CA, proxy secret)
+
+Verify reconciliation:
+
+[source,bash]
+----
+oc get metricsintegration perses-integration
+oc describe metricsintegration perses-integration
+
+oc get persesdatasources,persesdashboards -n monitoring
+oc logs -n sail-operator deploy/sail-operator --tail=50
+----
+
+Expected:
+
+* `Reconciled=True`, `PersesAvailable=True`
+* `prometheus-datasource` and six dashboards in `monitoring`
+* Datasource spec includes `spec.client.tls` and `spec.config.plugin.spec.proxy.spec.secret`
+
+View dashboards in the console: **Observe → Dashboards (Perses) → project `monitoring`**.
+
+At this stage panels may still show `No data` until Istio metrics are scraped and traffic
+is generated (steps below).
+
+=== 6. Install Istio control plane
+
+On OpenShift, Istio requires both an `Istio` and an `IstioCNI` resource. The OpenShift
+profile is applied automatically by the operator.
+
+[source,bash]
+----
+oc create namespace istio-system
+
+oc apply -f - <<'EOF'
+apiVersion: sailoperator.io/v1
+kind: Istio
+metadata:
+  name: default
+  namespace: istio-system
+spec:
+  version: v1.31.0-beta.1
+  namespace: istio-system
+  updateStrategy:
+    type: InPlace
+EOF
+
+oc create namespace istio-cni
+
+oc apply -f - <<'EOF'
+apiVersion: sailoperator.io/v1
+kind: IstioCNI
+metadata:
+  name: default
+spec:
+  version: v1.31.0-beta.1
+  namespace: istio-cni
+EOF
+----
+
+Wait for a healthy control plane:
+
+[source,bash]
+----
+oc get istio -n istio-system
+oc get istiocni
+oc get pods -n istio-system
+oc get pods -n istio-cni
+----
+
+Replace `v1.31.0-beta.1` with a version supported by your Sail Operator build.
+
+=== 7. Configure User Workload Monitoring scraping
+
+UWM does not scrape Istio automatically. Create monitors as described in
+link:../addons/observability.adoc#scraping-metrics-using-the-openshift-monitoring-stack[Scraping metrics using the OpenShift monitoring stack].
+
+==== ServiceMonitor for istiod
+
+[source,yaml]
+----
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: istiod-monitor
+  namespace: istio-system
+spec:
+  targetLabels:
+  - app
+  selector:
+    matchLabels:
+      istio: pilot
+  endpoints:
+  - port: http-monitoring
+    interval: 30s
+----
+
+==== PodMonitor for istio-proxy sidecars
+
+Create one `PodMonitor` **per namespace** that runs injected workloads. Start with
+`istio-system`:
+
+[source,yaml]
+----
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: istio-proxies-monitor
+  namespace: istio-system
+spec:
+  selector:
+    matchExpressions:
+    - key: istio-prometheus-ignore
+      operator: DoesNotExist
+  podMetricsEndpoints:
+  - path: /stats/prometheus
+    interval: 30s
+    relabelings:
+    - action: keep
+      sourceLabels: ["__meta_kubernetes_pod_container_name"]
+      regex: "istio-proxy"
+    - action: keep
+      sourceLabels: ["__meta_kubernetes_pod_annotationpresent_prometheus_io_scrape"]
+    - action: replace
+      regex: (\d+);(([A-Fa-f0-9]{1,4}::?){1,7}[A-Fa-f0-9]{1,4})
+      replacement: "[$2]:$1"
+      sourceLabels: ["__meta_kubernetes_pod_annotation_prometheus_io_port","__meta_kubernetes_pod_ip"]
+      targetLabel: "__address__"
+    - action: replace
+      regex: (\d+);((([0-9]+?)(\.|$)){4})
+      replacement: "$2:$1"
+      sourceLabels: ["__meta_kubernetes_pod_annotation_prometheus_io_port","__meta_kubernetes_pod_ip"]
+      targetLabel: "__address__"
+    - action: labeldrop
+      regex: "__meta_kubernetes_pod_label_(.+)"
+    - sourceLabels: ["__meta_kubernetes_namespace"]
+      action: replace
+      targetLabel: namespace
+    - sourceLabels: ["__meta_kubernetes_pod_name"]
+      action: replace
+      targetLabel: pod_name
+----
+
+[source,bash]
+----
+oc apply -f istiod-servicemonitor.yaml
+oc apply -f istio-proxies-podmonitor-istio-system.yaml
+----
+
+=== 8. Deploy Bookinfo and enable sidecar injection
+
+The active revision label must match the `Istio` resource name (`default` in the example
+above).
+
+[source,bash]
+----
+oc create namespace bookinfo
+oc label namespace bookinfo istio.io/rev=default --overwrite
+
+ISTIO_RELEASE=release-1.31
+oc apply -n bookinfo -f https://raw.githubusercontent.com/istio/istio/${ISTIO_RELEASE}/samples/bookinfo/platform/kube/bookinfo.yaml
+oc apply -n bookinfo -f https://raw.githubusercontent.com/istio/istio/${ISTIO_RELEASE}/samples/bookinfo/platform/kube/bookinfo-versions.yaml
+----
+
+Verify sidecars are injected (two containers per pod):
+
+[source,bash]
+----
+oc get pods -n bookinfo
+----
+
+Create the same `PodMonitor` in `bookinfo` (copy the manifest from step 7 and change
+`metadata.namespace` to `bookinfo`).
+
+=== 9. Generate mesh traffic
+
+Mesh dashboards query metrics such as `istio_requests_total`. Without traffic, panels
+show `No data` even when the datasource works.
+
+[source,bash]
+----
+while true; do
+  oc exec -n bookinfo deploy/productpage-v1 -c productpage -- \
+    curl -s -o /dev/null http://details:9080/details/1
+  sleep 2
+done
+----
+
+Optional: deploy the Bookinfo gateway and send external traffic as described in
+link:../addons/addons.adoc#deploy-gateway-and-bookinfo[Deploy Gateway and Bookinfo].
+
+=== 10. Verify metrics and dashboards
+
+==== In OpenShift Metrics UI
+
+[source,bash]
+----
+# Console: Observe -> Metrics
+# Or query from CLI if you have monitoring access
+----
+
+Run in the metrics UI:
+
+[source]
+----
+istio_requests_total
+up{job=~".*istiod.*"}
+----
+
+==== In Perses dashboards
+
+1. Open **Observe → Dashboards (Perses)**
+2. Select project/namespace `monitoring`
+3. Open **Istio Mesh Dashboard** or **Istio Control Plane Dashboard**
+4. Wait 1–2 minutes after traffic starts (scrape interval is 30s)
+
+Expected progression:
+
+* `tls: failed` → datasource TLS not configured (fixed by current `MetricsIntegration` code)
+* `No data` with working TLS → missing RBAC, missing monitors, or no traffic
+* Panels with values → full stack working
+
+=== OpenShift troubleshooting
+
+[cols="2,3,3", options="header"]
+|===
+| Symptom | Likely cause | Fix
+
+| `tls: failed` in Perses panels
+| `PersesDatasource` missing OpenShift TLS/secret config
+| Use a Sail Operator build with OpenShift datasource support; verify
+`spec.client.tls` and `spec.config.plugin.spec.proxy.spec.secret` on
+`prometheus-datasource`
+
+| `No data` after TLS works
+| `perses-sa` lacks monitoring RBAC, or no Istio metrics in Thanos
+| Apply `cluster-monitoring-view` binding; configure `ServiceMonitor`/`PodMonitor`;
+deploy Istio workloads and generate traffic
+
+| `perses-0` restart loop
+| Two Perses operators (COO + Helm)
+| Remove standalone Helm `perses-operator`; delete manual `Perses` CRs outside COO
+
+| Sail Operator `Forbidden` on `metricsintegrations`
+| Missing RBAC in deployed operator
+| Deploy build with updated `chart/templates/rbac/role.yaml` and bundle CSV
+
+| `ImagePullBackOff` for sail-operator
+| Image in wrong namespace/registry
+| Build in `sail-operator` namespace or grant `system:image-puller`
+
+| `MetricsIntegration` `NamespaceNotFound`
+| `monitoring` namespace missing
+| Create namespace before applying `MetricsIntegration`
+
+| Control plane healthy but no proxy metrics
+| `PodMonitor` missing in workload namespace
+| Add `PodMonitor` to every namespace with injected sidecars
+|===
 
 == End-to-end test on KinD
 
-=== 1. Create the KinD cluster and deploy Sail Operator
+KinD is useful for testing provisioning logic without OpenShift UWM. Dashboard queries
+will not return real mesh data because the datasource targets OpenShift Thanos.
+
+=== 1. Create KinD cluster and deploy Sail Operator
 
 [source,bash]
 ----
@@ -32,14 +481,7 @@ HELM_TEMPL_DEF_FLAGS="--values chart/values.yaml" make deploy
 kubectl rollout status deployment/sail-operator -n sail-operator
 ----
 
-Deploy without bundled Istio CRDs when another Istio installation already manages them:
-
-[source,bash]
-----
-HELM_TEMPL_DEF_FLAGS="--values chart/values.yaml" make deploy
-----
-
-=== 2. Install Perses Operator
+=== 2. Install Perses Operator (KinD only)
 
 [source,bash]
 ----
@@ -50,13 +492,11 @@ helm install perses-operator perses/perses-operator \
   --namespace perses --create-namespace \
   --set certManager.enable=false
 
-kubectl wait --for=condition=Available deployment -l app.kubernetes.io/name=perses-operator -n perses --timeout=120s
-kubectl get crd | grep perses
+kubectl wait --for=condition=Available deployment \
+  -l app.kubernetes.io/name=perses-operator -n perses --timeout=120s
 ----
 
-=== 3. Create the Perses server
-
-Create the Perses project namespace and server before creating `MetricsIntegration`.
+=== 3. Create Perses server and MetricsIntegration
 
 [source,bash]
 ----
@@ -81,93 +521,9 @@ spec:
       cleanup_interval: "1s"
 EOF
 
-kubectl wait --for=condition=Available deployment -l app.kubernetes.io/name=perses -n monitoring --timeout=300s
-----
-
-=== 4. Create MetricsIntegration
-
-[source,bash]
-----
 kubectl apply -f chart/samples/metricsintegration-perses-sample.yaml
-----
-
-Or apply a minimal resource:
-
-[source,bash]
-----
-kubectl apply -f - <<EOF
-apiVersion: sailoperator.io/v1alpha1
-kind: MetricsIntegration
-metadata:
-  name: test-perses
-spec:
-  type: UserWorkloadMonitoring
-  userWorkloadMonitoring: {}
-  targetRefs:
-    - kind: Perses
-      name: perses
-      namespace: monitoring
-EOF
-----
-
-=== 5. Verify provisioning
-
-[source,bash]
-----
-kubectl get metricsintegration test-perses
-kubectl describe metricsintegration test-perses
-
 kubectl get persesdatasources,persesdashboards -n monitoring
-kubectl logs -n sail-operator deploy/sail-operator --tail=30
 ----
-
-Expected result:
-
-* `Reconciled=True`
-* `PersesAvailable=True`
-* One `PersesDatasource` named `prometheus-datasource`
-* Six `PersesDashboard` resources when `spec.perses.dashboards` is omitted
-
-=== 6. Optional: open the Perses UI
-
-[source,bash]
-----
-kubectl port-forward -n monitoring svc/perses 8080:8080
-----
-
-Open `http://localhost:8080` and select the `monitoring` project.
-
-Dashboards are provisioned, but queries do not return data on KinD because the datasource URL targets OpenShift User Workload Monitoring.
-
-== OpenShift and Cluster Observability Operator
-
-When Perses is managed by the Cluster Observability Operator (COO), install the UI plugin with `perses.enabled: true` and create the `MetricsIntegration` in the namespace that should appear as a Perses project (for example `monitoring`).
-
-The controller provisions a `PersesDatasource` configured for OpenShift monitoring:
-
-* Thanos querier URL: `https://thanos-querier.openshift-monitoring.svc.cluster.local:9091`
-* TLS client config using the service CA mounted at `/ca/service-ca.crt` in the Perses pod
-* HTTP proxy secret named `<datasource-name>-secret` (default: `prometheus-datasource-secret`), which the perses-operator creates automatically
-
-Grant the Perses service account permission to read monitoring data:
-
-[source,yaml]
-----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: perses-cluster-monitoring-view
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: cluster-monitoring-view
-subjects:
-- kind: ServiceAccount
-  name: perses-sa
-  namespace: openshift-cluster-observability-operator
-----
-
-After TLS and RBAC are in place, dashboard panels may still show `No data` until Istio metrics are scraped into User Workload Monitoring. That requires a separate Istio/UWM integration (see link:../addons/observability.adoc#scraping-metrics-using-the-openshift-monitoring-stack[Scraping metrics using the OpenShift monitoring stack]).
 
 == Status conditions
 
