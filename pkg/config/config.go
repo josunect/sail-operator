@@ -36,6 +36,7 @@ type IstioImageConfig struct {
 
 type ReconcilerConfig struct {
 	ResourceFS              fs.FS
+	PersesDashboardFS       fs.FS
 	Platform                Platform
 	DefaultProfile          string
 	OperatorNamespace       string

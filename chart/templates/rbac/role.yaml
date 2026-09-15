@@ -324,3 +324,11 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - perses.dev
+  resources:
+  - persesdashboards
+  verbs:
+  - create
+  - get
+  - list

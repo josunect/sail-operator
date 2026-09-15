@@ -26,6 +26,7 @@ import (
 	"github.com/istio-ecosystem/sail-operator/controllers/istiocni"
 	"github.com/istio-ecosystem/sail-operator/controllers/istiorevision"
 	"github.com/istio-ecosystem/sail-operator/controllers/istiorevisiontag"
+	"github.com/istio-ecosystem/sail-operator/controllers/persesdashboard"
 	"github.com/istio-ecosystem/sail-operator/controllers/ztunnel"
 	"github.com/istio-ecosystem/sail-operator/pkg/config"
 	"github.com/istio-ecosystem/sail-operator/pkg/helm"
@@ -58,6 +59,7 @@ var (
 	istioRevisionTagReconciler *istiorevisiontag.Reconciler
 	istioCNIReconciler         *istiocni.Reconciler
 	zTunnelReconciler          *ztunnel.Reconciler
+	persesDashboardReconciler  *persesdashboard.Reconciler
 )
 
 const operatorNamespace = "sail-operator"
@@ -88,6 +90,7 @@ var _ = BeforeSuite(func() {
 
 	cfg := config.ReconcilerConfig{
 		ResourceFS:              os.DirFS(path.Join(project.RootDir, "resources")),
+		PersesDashboardFS:       os.DirFS(path.Join(project.RootDir, "resources", "perses")),
 		Platform:                config.PlatformKubernetes,
 		DefaultProfile:          "",
 		OperatorNamespace:       operatorNs.Name,
@@ -101,11 +104,13 @@ var _ = BeforeSuite(func() {
 	istioRevisionTagReconciler = istiorevisiontag.NewReconciler(cfg, cl, scheme, chartManager)
 	istioCNIReconciler = istiocni.NewReconciler(cfg, cl, scheme, chartManager)
 	zTunnelReconciler = ztunnel.NewReconciler(cfg, cl, scheme, chartManager)
+	persesDashboardReconciler = persesdashboard.NewReconciler(cfg, cl, scheme)
 	Expect(istioReconciler.SetupWithManager(mgr)).To(Succeed())
 	Expect(istioRevisionReconciler.SetupWithManager(mgr)).To(Succeed())
 	Expect(istioRevisionTagReconciler.SetupWithManager(mgr)).To(Succeed())
 	Expect(istioCNIReconciler.SetupWithManager(mgr)).To(Succeed())
 	Expect(zTunnelReconciler.SetupWithManager(mgr)).To(Succeed())
+	Expect(persesDashboardReconciler.SetupWithManager(mgr)).To(Succeed())
 
 	// create new cancellable context
 	var ctx context.Context

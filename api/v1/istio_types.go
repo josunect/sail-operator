@@ -203,6 +203,26 @@ const (
 	IstioReasonHealthy IstioConditionReason = "Healthy"
 )
 
+const (
+	// IstioConditionPersesDashboardsAvailable signifies whether all Perses dashboards exist in the target namespace.
+	IstioConditionPersesDashboardsAvailable IstioConditionType = "PersesDashboardsAvailable"
+
+	// IstioReasonPersesDashboardsAvailable indicates all Perses dashboards exist in the target namespace.
+	IstioReasonPersesDashboardsAvailable IstioConditionReason = "Available"
+
+	// IstioReasonPersesDashboardsMissingCRDs indicates the PersesDashboard CRD is not installed.
+	IstioReasonPersesDashboardsMissingCRDs IstioConditionReason = "MissingCRDs"
+
+	// IstioReasonPersesDashboardsInvalidConfig indicates the perses-project annotation is missing or invalid.
+	IstioReasonPersesDashboardsInvalidConfig IstioConditionReason = "InvalidConfig"
+
+	// IstioReasonPersesDashboardsPartiallyApplied indicates some dashboards could not be created.
+	IstioReasonPersesDashboardsPartiallyApplied IstioConditionReason = "PartiallyApplied"
+
+	// IstioReasonPersesDashboardsReconcileError indicates a reconciliation error for Perses dashboards.
+	IstioReasonPersesDashboardsReconcileError IstioConditionReason = "ReconcileError"
+)
+
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster,categories=istio-io
 // +kubebuilder:subresource:status

@@ -94,4 +94,13 @@ const (
 
 	// BaseChartName is the name of the base chart
 	BaseChartName = "base"
+
+	// PersesDashboardsAnnotationKey enables Perses dashboard provisioning on the Istio CR.
+	PersesDashboardsAnnotationKey = MetadataNamespace + "/perses-dashboards"
+
+	// PersesDashboardsEnabledValue is the annotation value that turns dashboard provisioning on.
+	PersesDashboardsEnabledValue = "enabled"
+
+	// PersesProjectAnnotationKey is the target namespace (Perses project) for PersesDashboard CRs.
+	PersesProjectAnnotationKey = MetadataNamespace + "/perses-project"
 )
